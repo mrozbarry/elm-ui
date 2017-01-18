@@ -49,19 +49,6 @@
 @import 'components/ui-layout';
 @import 'components/ui-file-input';
 
-* {
-  -webkit-touch-callout: none;
-  box-sizing: border-box;
-}
-
 html {
   -webkit-tap-highlight-color: rgba(#000, 0);
-}
-
-body {
-  color: readable($background);
-  background: $background;
-  font-family: Open Sans;
-  font-size: 16px;
-  margin: 0;
 }
