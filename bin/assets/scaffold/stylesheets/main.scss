@@ -1,5 +1,10 @@
 @import 'ui';
 
+body {
+  background: $background;
+  margin: 0;
+}
+
 ui-app > ui-container {
   padding-top: 60px;
   max-width: 900px;

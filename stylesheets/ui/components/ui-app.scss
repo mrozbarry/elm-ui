@@ -4,10 +4,8 @@
 ui-app {
   display: block;
   color: readable($background);
-  background: $background;
   font-family: Open Sans;
   font-size: 16px;
-  margin: 0;
 
   * {
     -webkit-touch-callout: none;
