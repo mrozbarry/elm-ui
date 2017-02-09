@@ -1,7 +1,6 @@
 module Ext.Date exposing (..)
 
-{-| This module provides utility functions to Date with manipulating the Native
-implementation.
+{-| This module provides utility functions to Date using Native functions.
 
 # Create
 @docs now, nowTime, createDate
@@ -24,7 +23,6 @@ import Time exposing (Time)
 import Native.DateTime
 import Array
 import Date
-
 
 {-| Returns the current date.
 

@@ -1,16 +1,15 @@
-module Ui.Layout exposing (..)
+module Ui.Layout exposing (sidebar, app, website)
 
 {-| Module that provides flexbox layouts for most common use cases.
-
-# Models
-@docs Content
 
 # Views
 @docs sidebar, app, website
 -}
-
+import Html.Attributes exposing (attribute)
 import Html exposing (node)
 
+import Ui.Styles.Layout exposing (defaultStyle)
+import Ui.Styles
 
 {-| Alias for list of Html elements.
 -}
@@ -20,13 +19,15 @@ type alias Content msg =
 
 {-| Layout with a sidebar on the left side.
 
-    Ui.Layout.sidebar [ text "sidebar" ] [ text "content" ]
+    Ui.Layout.sidebar
+      [ text "sidebar" ]
+      [ text "content" ]
 -}
 sidebar : Content msg -> Content msg -> Html.Html msg
 sidebar sidebarContent mainContent =
   node "ui-layout-sidebar"
-    []
-    [ node "ui-layout-sidebar-bar" [] sidebarContent
+    (Ui.Styles.apply defaultStyle)
+    [ node "ui-layout-sidebar-bar"     [] sidebarContent
     , node "ui-layout-sidebar-content" [] mainContent
     ]
 
@@ -41,7 +42,7 @@ sidebar sidebarContent mainContent =
 app : Content msg -> Content msg -> Content msg -> Html.Html msg
 app sidebarContent toolbarContent mainContent =
   node "ui-layout-app"
-    []
+    (Ui.Styles.apply defaultStyle)
     [ node "ui-layout-app-sidebar" [] sidebarContent
     , node "ui-layout-app-wrapper"
         []
@@ -61,8 +62,12 @@ app sidebarContent toolbarContent mainContent =
 website : Content msg -> Content msg -> Content msg -> Html.Html msg
 website headerContent mainContent footerContent =
   node "ui-layout-website"
-    []
-    [ node "ui-layout-website-header" [] headerContent
+    ( [ Ui.Styles.apply defaultStyle
+      , [ attribute "kind" "website" ]
+      ]
+      |> List.concat
+    )
+    [ node "ui-layout-website-header"  [] headerContent
     , node "ui-layout-website-content" [] mainContent
-    , node "ui-layout-website-footer" [] footerContent
+    , node "ui-layout-website-footer"  [] footerContent
     ]

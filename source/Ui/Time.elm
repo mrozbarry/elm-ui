@@ -1,5 +1,4 @@
-module Ui.Time exposing
-  (Model, Msg, init, subscriptions, update, view, render, updateTime)
+module Ui.Time exposing (Model, Msg, init, subscriptions, update, view, render)
 
 {-| A component that displays time with a formatting function (defaults to
 relative time like: 10 minutes ago).
@@ -9,9 +8,6 @@ relative time like: 10 minutes ago).
 
 # View
 @docs view, render
-
-# Functions
-@docs updateTime
 -}
 
 import Date.Extra.Config.Configs as DateConfigs
@@ -24,14 +20,13 @@ import Html.Attributes exposing (title)
 import Html exposing (text, node)
 import Html.Lazy
 
-import Ui.Helpers.Emitter as Emitter
-
+import Ui.Helpers.PeriodicUpdate as PeriodicUpdate
 
 {-| Representation of a time component:
-  - **format** - The function to format the date
   - **tooltipFormat** - The format of the tooltip (title)
-  - **date** - The date to display
+  - **format** - The function to format the date
   - **now** - The date to calculate from
+  - **date** - The date to display
   - **locale** - The locale to use
 -}
 type alias Model =
@@ -50,8 +45,7 @@ type Msg
 
 
 {-| Initializes a time component.
-
-    time = Ui.Time.init (Date.fromString '2016-05-28')
+    time = Ui.Time.initModel (Date.fromString '2016-05-28')
 -}
 init : Date.Date -> Model
 init date =
@@ -65,18 +59,16 @@ init date =
 
 {-| Subscriptions for a time component.
 
-    ...
-    subscriptions = \model-> Sub.map Time Ui.Time.subscriptions
-    ...
+    subscriptions = Sub.map Time Ui.Time.subscriptions
 -}
 subscriptions : Sub Msg
 subscriptions =
-  Emitter.listenFloat "time-tick" Tick
+  PeriodicUpdate.listen Tick
 
 
 {-| Updates a time component.
 
-    Ui.Time.update msg time
+    ( updatedTime, cmd ) = Ui.Time.update msg time
 -}
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
@@ -111,13 +103,3 @@ render model =
       "ui-time"
       [ title titleText ]
       [ text (model.format model.date model.now) ]
-
-
-{-| Returns a command with the given time to send to all of the subscribers as
-the **now** value.
-
-    cmd = Ui.Time.updateTime now
--}
-updateTime : Time -> Cmd msg
-updateTime now =
-  Emitter.sendFloat "time-tick" now

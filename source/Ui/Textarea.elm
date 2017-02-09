@@ -1,11 +1,18 @@
 module Ui.Textarea exposing
-  (Model, Msg, init, subscribe, update, view, render, setValue)
+  ( Model, Msg, init, onChange, update, view, render, setValue, placeholder
+  , enterAllowed, defaultValue )
 
 {-| Textarea which uses a mirror object to render the contents the same way,
 thus creating an automatically growing textarea.
 
 # Model
-@docs Model, Msg, init, subscribe, update
+@docs Model, Msg, init, update
+
+# Events
+@docs onChange
+
+# DSL
+@docs placeholder, enterAllowed, defaultValue
 
 # View
 @docs view, render
@@ -14,21 +21,13 @@ thus creating an automatically growing textarea.
 @docs setValue
 -}
 
-import Html.Events.Extra exposing (onEnterPreventDefault, onStop)
+import Html.Attributes exposing (spellcheck, readonly, disabled, id)
+import Html.Events.Extra exposing (onEnterPreventDefault)
 import Html exposing (node, textarea, text, br)
 import Html.Events exposing (onInput)
 import Html.Lazy
-import Html.Attributes
-  exposing
-    ( value
-    , spellcheck
-    , placeholder
-    , classList
-    , readonly
-    , disabled
-    , attribute
-    )
 
+import Regex exposing (Regex)
 import String
 import Task
 import List
@@ -37,14 +36,18 @@ import Ui.Helpers.Emitter as Emitter
 import Ui.Native.Uid as Uid
 import Ui
 
+import Ui.Styles.Textarea exposing (defaultStyle)
+import Ui.Styles
+
+import DOM
 
 {-| Representation of a textarea:
-  - **placeholder** - The text to display when there is no value
   - **enterAllowed** - Whether or not to allow new lines when pressing enter
+  - **placeholder** - The text to display when there is no value
   - **disabled** - Whether or not the textarea is disabled
   - **readonly** - Whether or not the textarea is readonly
-  - **value** - The value
   - **uid** - The unique identifier of the textarea
+  - **value** - The value
 -}
 type alias Model =
   { placeholder : String
@@ -59,46 +62,68 @@ type alias Model =
 {-| Messages that a textarea can receive.
 -}
 type Msg
-  = Input String
+  = Done (Result DOM.Error ())
+  | Input String
   | NoOp
 
 
 {-| Initializes a textarea with a default value and a placeholder.
 
-    textarea = Ui.Textarea.init "default value" "Placeholder..."
+    textarea =
+      Ui.Textarea.init ()
+        |> Ui.Textarea.placeholder "Placeholder"
+        |> Ui.Textarea.enterAllowed False
 -}
-init : String -> String -> Model
-init value placeholder =
-  { placeholder = placeholder
+init : () -> Model
+init _ =
+  { enterAllowed = True
   , uid = Uid.uid ()
-  , enterAllowed = True
+  , placeholder = ""
   , disabled = False
   , readonly = False
-  , value = value
+  , value = ""
   }
 
 
 {-| Subscribe for the changes of a textarea.
 
-    ...
-    subscriptions =
-      \model -> Ui.Textarea.subscribe TextareaChanged model.textarea
-    ...
+    subscriptions = Ui.Textarea.onChange TextareaChanged textarea
 -}
-subscribe : (String -> a) -> Model -> Sub a
-subscribe msg model =
+onChange : (String -> a) -> Model -> Sub a
+onChange msg model =
   Emitter.listenString model.uid msg
+
+
+{-| Sets the placeholder of a textarea.
+-}
+placeholder : String -> Model -> Model
+placeholder value model =
+  { model | placeholder = value }
+
+
+{-| Sets whether or not pressing enter creates a new line.
+-}
+enterAllowed : Bool -> Model -> Model
+enterAllowed value model =
+  { model | enterAllowed = value }
+
+
+{-| Sets the default value of a textarea.
+-}
+defaultValue : String -> Model -> Model
+defaultValue value model =
+  { model | value = value }
 
 
 {-| Updates a textarea.
 
-    Ui.Textarea.update msg textarea
+    ( updatedTextarea, cmd ) = Ui.Textarea.update msg textarea
 -}
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
   case msg of
     Input value ->
-      ( setValue value model, Emitter.sendString model.uid value )
+      ( { model | value = value }, Emitter.sendString model.uid value )
 
     _ ->
       ( model, Cmd.none )
@@ -121,20 +146,19 @@ render : Model -> Html.Html Msg
 render model =
   let
     base =
-      [ placeholder model.placeholder
-      , attribute "id" model.uid
+      [ Html.Attributes.placeholder model.placeholder
+      , Html.Attributes.defaultValue model.value
       , readonly model.readonly
       , disabled model.disabled
-      , value model.value
       , spellcheck False
+      , id model.uid
       ]
         ++ actions
 
     actions =
       Ui.enabledActions
         model
-        [ onStop "select" NoOp
-        , onInput Input
+        [ onInput Input
         ]
 
     attributes =
@@ -145,12 +169,7 @@ render model =
   in
     node
       "ui-textarea"
-      ([ classList
-          [ ( "disabled", model.disabled )
-          , ( "readonly", model.readonly )
-          ]
-       ]
-      )
+      (Ui.Styles.apply defaultStyle)
       [ textarea attributes []
       , node "ui-textarea-background" [] []
       , node "ui-textarea-mirror" [] (process model.value)
@@ -159,21 +178,51 @@ render model =
 
 {-| Sets the value of the given textarea.
 
-    Ui.Textarea.setValue "new value" textarea
+    ( updatedTextarea, cmd ) = Ui.Textarea.setValue "new value" textarea
 -}
-setValue : String -> Model -> Model
+setValue : String -> Model -> ( Model, Cmd Msg)
 setValue value model =
-  { model | value = value }
+  let
+    selector =
+      DOM.idSelector model.uid
+
+    equals =
+      case DOM.getValueSync selector of
+        Ok currentValue -> model.value == value && currentValue == value
+        Err _ -> False
+  in
+    if equals then
+      ( model, Cmd.none )
+    else
+      ( { model | value = value }
+      , Task.attempt Done (DOM.setValue value selector)
+      )
 
 
-
------------------------------------ PRIVATE ------------------------------------
+{-| Regexp for matching emtpy lines.
+-}
+spaceRegex : Regex
+spaceRegex =
+  Regex.regex "^\\s*$"
 
 
 {-| Processes the value for the mirror object.
 -}
 process : String -> List (Html.Html Msg)
 process value =
-  String.split "\n" value
-    |> List.map (\data -> node "span-line" [] [ text data ])
-    |> List.intersperse (br [] [])
+  let
+    renderLine data =
+      let
+        isEmpty =
+          Regex.contains spaceRegex data
+
+        attributes =
+          Ui.attributeList
+            [ ("empty", isEmpty )
+            ]
+      in
+        node "span-line" attributes [ text data ]
+  in
+    String.split "\n" value
+      |> List.map renderLine
+      |> List.intersperse (br [] [])

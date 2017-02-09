@@ -9,11 +9,14 @@ module Ui.Image exposing (Model, Msg, init, update, render, view)
 @docs render, view
 -}
 
-import Html.Attributes exposing (src, classList)
 import Html.Events.Extra exposing (onLoad)
+import Html.Attributes exposing (src)
 import Html exposing (node, img)
 import Html.Lazy
 
+import Ui.Styles.Image exposing (defaultStyle)
+import Ui.Styles
+import Ui
 
 {-| Representation of an image:
   - **loaded** - Whether or not the image is loaded
@@ -44,7 +47,7 @@ init url =
 
 {-| Updates an image.
 
-    Ui.Image.update image
+    updatedImage = Ui.Image.update image
 -}
 update : Msg -> Model -> Model
 update action model =
@@ -70,6 +73,10 @@ render : Model -> Html.Html Msg
 render model =
   node
     "ui-image"
-    [ classList [ ( "loaded", model.loaded ) ] ]
+    ( [ Ui.attributeList [ ("loaded", model.loaded ) ]
+      , Ui.Styles.apply defaultStyle
+      ]
+      |> List.concat
+    )
     [ img [ src model.src, onLoad Loaded ] []
     ]

@@ -1,11 +1,18 @@
 module Ui.DatePicker exposing
-  (Model, Msg, init, update, subscribe, subscriptions, view, render, setValue)
+  ( Model, Msg, init, update, subscriptions, onChange, view, render, setValue
+  , closeOnSelect )
 
 {-| An input component that displays a **Calendar** (in a dropdown) when
 focused, allowing the user to manipulate the selected date.
 
 # Model
-@docs Model, Msg, init, subscribe, subscriptions, update
+@docs Model, Msg, init, subscriptions, update
+
+# DSL
+@docs closeOnSelect
+
+# Events
+@docs onChange
 
 # View
 @docs view, render
@@ -14,10 +21,7 @@ focused, allowing the user to manipulate the selected date.
 @docs setValue
 -}
 
-import Html.Events exposing (onBlur, onClick)
-import Html.Attributes exposing (classList)
-import Html.Events.Extra exposing (onKeys)
-import Html exposing (node, div, text)
+import Html exposing (node, text)
 import Html.Lazy
 
 import Date.Extra.Format exposing (isoDateFormat, format)
@@ -25,94 +29,96 @@ import Date.Extra.Config.Configs as DateConfigs
 import Time
 import Date
 
-import Ui.Helpers.Dropdown as Dropdown
+import Ui.Helpers.Dropdown as Dropdown exposing (Dropdown)
+import Ui.Helpers.Picker as Picker
+import Ui.Native.Uid as Uid
 import Ui.Calendar
+import Ui.Icons
 import Ui
 
+import Ui.Styles.DatePicker exposing (defaultStyle)
+import Ui.Styles
 
 {-| Representation of a date picker:
-  - **calendar** - The model of a calendar
-  - **dropdownPosition** - The dropdowns position
   - **closeOnSelect** - Whether or not to close the dropdown after selecting
   - **format** - The format of the date to render in the input
   - **readonly** - Whether or not the date picker is readonly
   - **disabled** - Whether or not the date picker is disabled
-  - **open** - Whether or not the dropdown is open
+  - **uid** - The unique identifier of the date picker
+  - **calendar** - The model of the calendar
+  - **dropdown** - The model of the dropdown
 -}
 type alias Model =
   { calendar : Ui.Calendar.Model
-  , dropdownPosition : String
   , closeOnSelect : Bool
+  , dropdown : Dropdown
   , format : String
   , disabled : Bool
   , readonly : Bool
-  , open : Bool
+  , uid : String
   }
 
 
 {-| Messages that a date picker can receive.
 -}
 type Msg
-  = Increment Dropdown.Dimensions
-  | Decrement Dropdown.Dimensions
-  | Toggle Dropdown.Dimensions
-  | Focus Dropdown.Dimensions
-  | Close Dropdown.Dimensions
-  | Calendar Ui.Calendar.Msg
+  = Calendar Ui.Calendar.Msg
+  | Picker Picker.Msg
   | Select Time.Time
-  | NoOp
-  | Blur
+  | Increment
+  | Decrement
 
 
 {-| Initializes a date picker with the given date.
 
-    datePicker = Ui.DatePicker.init (Ext.Date.create 1980 5 17)
+    datePicker =
+      Ui.DatePicker.init ()
+      |> Ui.DatePicker.closeOnSelect true
 -}
-init : Date.Date -> Model
-init date =
-  { calendar = Ui.Calendar.init date
-  , dropdownPosition = "bottom"
+init : () -> Model
+init _ =
+  { calendar = Ui.Calendar.init ()
+  , dropdown = Dropdown.init
   , format = isoDateFormat
   , closeOnSelect = False
   , disabled = False
   , readonly = False
-  , open = False
+  , uid = Uid.uid ()
   }
+    |> Dropdown.offset 5
 
 
 {-| Subscribe to the changes of a date picker.
 
-    ...
-    subscriptions =
-      \model ->
-        Ui.DatePicker.subscribe
-          DatePickerChanged
-          model.datePicker
-    ...
+    subscriptions = Ui.DatePicker.onChange DatePickerChanged datePicker
 -}
-subscribe : (Time.Time -> msg) -> Model -> Sub msg
-subscribe msg model =
-  Ui.Calendar.subscribe msg model.calendar
+onChange : (Time.Time -> msg) -> Model -> Sub msg
+onChange msg model =
+  Ui.Calendar.onChange msg model.calendar
 
 
 {-| Subscriptions for a date picker.
 
-    ...
-    subscriptions =
-      \model ->
-        Sub.map
-          DatePicker
-          (Ui.DatePicker.subscriptions model.datePicker)
-    ...
+    subscriptions = Sub.map DatePicker (Ui.DatePicker.subscriptions datePicker)
 -}
 subscriptions : Model -> Sub Msg
 subscriptions model =
-  Ui.Calendar.subscribe Select model.calendar
+  Sub.batch
+    [ Ui.Calendar.onChange Select model.calendar
+    , Sub.map Picker (Picker.subscriptions model)
+    ]
+
+
+{-| Sets whether or not to close the dropdown when selecting an other date.
+-}
+closeOnSelect : Bool -> Model -> Model
+closeOnSelect value model =
+  { model | closeOnSelect = value }
 
 
 {-| Updates a date picker.
 
-    Ui.DatePicker.update msg datePicker
+    ( updatedDatePicker, cmd ) = Ui.DatePicker.update msg datePicker
 -}
 update : Msg -> Model -> ( Model, Cmd Msg )
 update action model =
@@ -134,32 +140,20 @@ update action model =
       in
         ( updatedModel, Cmd.none )
 
-    Focus dimensions ->
-      ( Dropdown.openWithDimensions dimensions model, Cmd.none )
+    Picker act ->
+      (Picker.update act model, Cmd.none)
 
-    Close _ ->
-      ( Dropdown.close model, Cmd.none )
-
-    Blur ->
-      ( Dropdown.close model, Cmd.none )
-
-    Toggle dimensions ->
-      ( Dropdown.toggleWithDimensions dimensions model, Cmd.none )
-
-    Decrement dimensions ->
+    Decrement ->
       ( { model | calendar = Ui.Calendar.previousDay model.calendar }
-          |> Dropdown.openWithDimensions dimensions
+          |> Dropdown.open
       , Cmd.none
       )
 
-    Increment dimensions ->
+    Increment ->
       ( { model | calendar = Ui.Calendar.nextDay model.calendar }
-          |> Dropdown.openWithDimensions dimensions
+          |> Dropdown.open
       , Cmd.none
       )
-
-    NoOp ->
-      ( model, Cmd.none )
 
 
 {-| Lazily renders a date picker in the given locale.
@@ -178,50 +172,31 @@ view locale model =
 render : String -> Model -> Html.Html Msg
 render locale model =
   let
-    actions =
-      Ui.enabledActions
-        model
-        [ Dropdown.onWithDimensions "focus" Focus
-        , Dropdown.onWithDimensions "mousedown" Toggle
-        , onBlur Blur
-        , Dropdown.onKeysWithDimensions
-            [ ( 27, Close )
-            , ( 13, Toggle )
-            , ( 40, Increment )
-            , ( 38, Decrement )
-            , ( 39, Increment )
-            , ( 37, Decrement )
-            ]
-        ]
-
-    open =
-      model.open && not model.disabled && not model.readonly
+    dateText =
+      (format (DateConfigs.getConfig locale) model.format model.calendar.value)
   in
-    node
-      "ui-date-picker"
-      ([ classList
-          [ ( "dropdown-open", open )
-          , ( "disabled", model.disabled )
-          , ( "readonly", model.readonly )
+    Picker.view
+      { attributes = Ui.Styles.apply defaultStyle
+      , address = Picker
+      , keyActions =
+        [ ( 40, Increment )
+        , ( 38, Decrement )
+        , ( 39, Increment )
+        , ( 37, Decrement )
+        ]
+      , contents =
+          [ node "ui-date-picker-content" [] [ text dateText ]
+          , Ui.Icons.calendar []
           ]
-       ]
-        ++ actions
-        ++ (Ui.tabIndex model)
-      )
-      [ div [] [ text (format (DateConfigs.getConfig locale) model.format model.calendar.value) ]
-      , Ui.icon "calendar" False []
-      , Dropdown.view
-          NoOp
-          model.dropdownPosition
-          [ node "ui-dropdown-overlay" [ onClick Blur ] []
-          , Html.map Calendar (Ui.Calendar.view locale model.calendar)
-          ]
-      ]
+      , dropdownContents =
+        [ Html.map Calendar (Ui.Calendar.view locale model.calendar) ]
+      } model
 
 
 {-| Sets the value of a date picker
 
-    Ui.DatePicker.setValue (Ext.Date.create 1980 5 17) datePicker
+    ( updatedDatePicker, cmd ) =
+      Ui.DatePicker.setValue (Ext.Date.create 1980 5 17) datePicker
 -}
 setValue : Date.Date -> Model -> Model
 setValue date model =

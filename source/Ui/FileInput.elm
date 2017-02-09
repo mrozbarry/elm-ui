@@ -1,11 +1,17 @@
 module Ui.FileInput exposing
-  ( Model, Msg, init, update, subscribe, view, render, viewDetails
+  ( Model, Msg, init, update, onChange, view, accept, render, viewDetails
   , renderDetails )
 
 {-| Component for selecting a file.
 
 # Model
-@docs Model, Msg, init, update, subscribe
+@docs Model, Msg, init, update
+
+# DSL
+@docs accept
+
+# Events
+@docs onChange
 
 # View
 @docs view, render
@@ -16,11 +22,8 @@ module Ui.FileInput exposing
 
 import Numeral exposing (format)
 import Task exposing (Task)
-import Json.Decode as Json
-import Http
 
-import Html.Attributes exposing (classList)
-import Html exposing (node, div, text)
+import Html exposing (node, text)
 import Html.Events exposing (on)
 import Html.Lazy
 
@@ -30,10 +33,12 @@ import Ui.Native.Uid as Uid
 import Ui.Button
 import Ui
 
+import Ui.Styles.FileInput exposing (defaultStyle, defaultStyleDetails)
+import Ui.Styles
 
 {-| Representation of a file input:
-  - **readonly** - Whether or not the date picker is readonly
-  - **disabled** - Whether or not the date picker is disabled
+  - **readonly** - Whether or not the file input is readonly
+  - **disabled** - Whether or not the file input is disabled
   - **accept** - The mime types that the file input accepts
   - **uid** - The unique identifier of the file input
   - **file** - (Maybe) The selected file
@@ -58,48 +63,49 @@ type Msg
 
 {-| Initializes a file input with the given accept value.
 
-    fileInput = Ui.FileInput.init "image/*"
+    fileInput = Ui.FileInput.init ()
 -}
-init : String -> Model
-init accept =
+init : () -> Model
+init _ =
   { uid = Uid.uid ()
   , readonly = False
   , disabled = False
-  , accept = accept
   , file = Nothing
+  , accept = "*/*"
   }
 
 
 {-| Subscribe to the changes of a file input.
 
-    ...
-    subscriptions =
-      \model ->
-        Ui.FileInput.subscribe
-          FileInputChanged
-          model.fileInput
-    ...
+    subscriptions = Ui.FileInput.onChange FileInputChanged fileInput
 -}
-subscribe : (File -> msg) -> Model -> Sub msg
-subscribe msg model =
+onChange : (File -> msg) -> Model -> Sub msg
+onChange msg model =
   Emitter.listenFile model.uid msg
+
+
+{-| Sets the accept property of a file input
+-}
+accept : String -> Model -> Model
+accept value model =
+  { model | accept = value }
 
 
 {-| Updates a file input.
 
-    Ui.FileInput.update msg fileInput
+    ( updatedFileInput, cmd ) = Ui.FileInput.update msg fileInput
 -}
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
   case msg of
-    Open task ->
-      ( model, Task.perform Selected task )
-
     Selected file ->
       ( { model | file = Just file }, Emitter.sendFile model.uid file )
 
     Clear ->
       ( { model | file = Nothing }, Cmd.none )
+
+    Open task ->
+      ( model, Task.perform Selected task )
 
     NoOp ->
       ( model, Cmd.none )
@@ -131,14 +137,16 @@ render model =
         [ on "click" (FileManager.openSingleDecoder model.accept Open) ]
   in
     node "ui-file-input"
-      ([ classList
+      ( [ Ui.attributeList
           [ ( "disabled", model.disabled )
           , ( "readonly", model.readonly )
           ]
-       ]
-        ++ attributes
+        , Ui.Styles.apply defaultStyle
+        , attributes
+        ]
+        |> List.concat
       )
-      [ div [] [ text label ]
+      [ node "ui-file-input-content" [] [ text label ]
       , Ui.Button.view
           NoOp
           { readonly = model.readonly
@@ -172,12 +180,14 @@ renderDetails model =
         [ on "click" (FileManager.openSingleDecoder model.accept Open) ]
   in
     node "ui-file-input-details"
-      ([ classList
+      ( [ Ui.attributeList
           [ ( "disabled", model.disabled )
           , ( "readonly", model.readonly )
           ]
-       ]
-        ++ attributes
+        , Ui.Styles.apply defaultStyleDetails
+        , attributes
+        ]
+        |> List.concat
       )
       [ renderFileStatus model
       , Ui.Button.view
@@ -189,10 +199,6 @@ renderDetails model =
           , size = "medium"
           }
       ]
-
-
-
------------------------------------ PRIVATE ------------------------------------
 
 
 {-| Renders a file status for a file input.

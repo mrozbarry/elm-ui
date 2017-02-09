@@ -1,152 +1,425 @@
-module Ui.Helpers.Dropdown exposing (..)
+module Ui.Helpers.Dropdown exposing
+  ( Direction(..), Side(..), Msg, Dropdown, Model, init, update, subscriptions
+  , favoring, alignTo, offset, direction, open, close, toggle, view, render )
 
-{-| This module provides utility functions for handing dropdowns for components.
+{-| This is a module for creating components that have a dropdown.
+
+```
+colorPicker =
+  Ui.ColorPicker.init ()
+    |> Dropdown.alignTo Top -- align it to the top of the trigger element
+    |> Dropdown.favoring Left -- open to left if there is space
+    |> Dropdown.direction Horizontal -- open to left or right
+    |> Dropdown.offset 5
+```
+
+# Types
+@docs Direction, Side, Msg, Dropdown
 
 # Model
-@docs Dimensions, Dropdown
+@docs Model, init, update, subscriptions
 
-# View
-@docs view
-
-# Decoder
-@docs decodeDimensions
-
-# Event Handlers
-@docs onKeysWithDimensions, onWithDimensions
+# DSL
+@docs offset, direction, favoring, alignTo
 
 # Functions
-@docs open, close, toggle, openWithDimensions, toggleWithDimensions
+@docs open, close, toggle
+
+# Rendering
+@docs view, render
+
 -}
 
-import Html.Events.Geometry as Geometry exposing (decodeElementDimensions)
-import Html.Events exposing (defaultOptions, onWithOptions)
-import Html.Events.Options exposing (preventDefaultOptions)
-import Html.Events.Extra exposing (onStop, keysDecoder)
-import Html.Attributes exposing (classList)
+import Html.Attributes exposing (style, id, attribute)
 import Html exposing (node)
+import Html.Lazy
 
-import Ui.Native.Dom as Dom
+import Window
+import Mouse
 
-import Json.Decode as Json
+import DOM exposing (Dimensions)
+import DOM.Window
 
+import Ui.Styles.Dropdown exposing (defaultStyle)
+import Ui.Styles
 
-{-| Representation of the dimensions of a dropdown.
+import Ui.Native.Scrolls as Scrolls
+import Ui
+
+{-| Representation of the direction where the dropdown opens:
+    * Horizontal - either left or right
+    * Vertical - either top or bottom
 -}
-type alias Dimensions =
-  { dimensions : Geometry.ElementDimensions
-  , dropdown : Geometry.ElementDimensions
-  , window : Geometry.WindowSize
+type Direction
+  = Horizontal
+  | Vertical
+
+
+{-| Representation of the a side.
+-}
+type Side
+  = Bottom
+  | Right
+  | Left
+  | Top
+
+
+{-| Representation of part of a direction similar to a Cartesian coordinate
+systems.
+-}
+type Space
+  = Positive
+  | Negative
+
+
+{-| Messages that a dropdown can receive.
+-}
+type Msg
+  = Click Mouse.Position
+  | Close
+
+
+{-| Representation of things in the view.
+-}
+type alias ViewModel msg =
+  { attributes : List (Html.Attribute msg)
+  , children : List (Html.Html msg)
+  , contents : List (Html.Html msg)
+  , address : Msg -> msg
+  , tag : String
   }
 
 
 {-| Representation of a dropdown.
 -}
-type alias Dropdown a =
-  { a
-    | open : Bool
-    , dropdownPosition : String
+type alias Dropdown =
+  { direction : Direction
+  , favoring : Space
+  , alignTo : Space
+  , offset : Float
+  , left : Float
+  , top : Float
+  , open : Bool
   }
 
 
-{-| Decodes dimensions for a element and its dropdown.
+{-| Representation of a component which has a dropdown.
 -}
-decodeDimensions : Json.Decoder Dimensions
-decodeDimensions =
-  Json.map3
-    Dimensions
-    (Json.at [ "target" ] decodeElementDimensions)
-    (Json.at [ "target" ] (Dom.withNearest "ui-dropdown" decodeElementDimensions))
-    Geometry.decodeWindowSize
+type alias Model a =
+  { a
+    | dropdown : Dropdown
+    , uid : String
+  }
 
 
-{-| Captures events with the dimensions of the dropdown.
+{-| Initializes a dropdown.
 -}
-onWithDimensions : String -> (Dimensions -> msg) -> Html.Attribute msg
-onWithDimensions event msg =
-  onWithOptions
-    event
-    defaultOptions
-    (Json.map msg decodeDimensions)
+init : Dropdown
+init =
+  { direction = Vertical
+  , favoring = Positive
+  , alignTo = Positive
+  , open = False
+  , offset = 0
+  , left = 0
+  , top = 0
+  }
 
 
-{-| Captures keydown events with the dimensions of the dropdown which will call
-the given message associated with the given key.
+{-| Sets the direction of a dropdown, this property indicates where the dropdown
+will open.
 -}
-onKeysWithDimensions : List ( Int, Dimensions -> msg ) -> Html.Attribute msg
-onKeysWithDimensions mappings =
-  onWithOptions
-    "keydown"
-    preventDefaultOptions
-    (Json.andThen (\msg -> Json.map msg decodeDimensions) (keysDecoder mappings))
+direction : Direction -> Model a -> Model a
+direction value model =
+  updateDropdown
+    (\dropdown -> { dropdown | direction = value })
+    model
 
 
-{-| Renders a dropdown.
+{-| Sets where to align a dropdown when it's open. For example if a dropdown
+opens horizontally to either to the left or right, then it can be aligned to
+either the top or the bottom of the opening element.
 -}
-view : msg -> String -> List (Html.Html msg) -> Html.Html msg
-view noop position children =
-  node
-    "ui-dropdown"
-    [ onStop "mousedown" noop
-    , classList [ ( "position-" ++ position, True ) ]
-    ]
-    children
+alignTo : Side -> Model a -> Model a
+alignTo side model =
+  updateDropdown
+    (\dropdown -> { dropdown | alignTo = stwitchSpace (getSpaceFromSide side) })
+    model
+
+
+{-| Sets where to open a dropdown if there is more space.
+-}
+favoring : Side -> Model a -> Model a
+favoring side model =
+  updateDropdown
+    (\dropdown -> { dropdown | favoring = getSpaceFromSide side })
+    model
+
+
+{-| Sets the offset of the dropdown from it's opening element.
+-}
+offset : Float -> Model a -> Model a
+offset offset model =
+  updateDropdown
+    (\dropdown -> { dropdown | offset = offset })
+    model
 
 
 {-| Opens a dropdown.
 -}
-open : Dropdown a -> Dropdown a
+open : Model a -> Model a
 open model =
-  { model | open = True }
+  updateDropdown
+    (\dropdown -> openDropdown model.uid dropdown)
+    model
 
 
 {-| Closes a dropdown.
 -}
-close : Dropdown a -> Dropdown a
+close : Model a -> Model a
 close model =
-  { model | open = False }
+  updateDropdown
+    (\dropdown -> { dropdown | open = False })
+    model
 
 
 {-| Toggles a dropdown.
 -}
-toggle : Dropdown a -> Dropdown a
+toggle : Model a -> Model a
 toggle model =
-  { model | open = not model.open }
-
-
-{-| Toggles a dropdown positioning it based on the given dimensions.
--}
-toggleWithDimensions : Dimensions -> Dropdown a -> Dropdown a
-toggleWithDimensions dimensions model =
-  if model.open then
+  if model.dropdown.open then
     close model
   else
-    openWithDimensions dimensions model
+    open model
 
 
-{-| Opens a dropdown positioning it based on the given dimensions.
+{-| Subscriptions for a dropdown.
 -}
-openWithDimensions : Dimensions -> Dropdown a -> Dropdown a
-openWithDimensions { dimensions, dropdown, window } model =
+subscriptions : Model a -> Sub Msg
+subscriptions model =
+  if model.dropdown.open then
+    Sub.batch
+      [ Window.resizes (always Close)
+      , Scrolls.scrolls Close
+      , Mouse.downs Click
+      ]
+  else
+    Sub.none
+
+
+{-| Updates a dropdown.
+-}
+update : Msg -> Model a -> Model a
+update msg model =
+  case msg of
+    Click position ->
+      if isOver model.uid position then
+        model
+      else
+        close model
+
+    Close ->
+      close model
+
+
+{-| Renders a dropdown lazily.
+-}
+view : ViewModel msg -> Model a -> Html.Html msg
+view viewModel model =
+  Html.Lazy.lazy2 render viewModel model
+
+
+{-| Renders a dropdown.
+-}
+render : ViewModel msg -> Model a -> Html.Html msg
+render viewModel model =
   let
-    bottom =
-      dimensions.bottom + dropdown.height
+    attributes =
+      [ id model.uid
+      ]
+        |> (++) viewModel.attributes
 
-    right =
-      dimensions.right + dropdown.width
+    dropdown =
+      node "ui-dropdown-panel"
+        ([ Ui.attributeList
+           [ ( "open", model.dropdown.open ) ]
+         , [ id (model.uid ++ "-dropdown")
+           , style
+               [ ( "left", (toString model.dropdown.left) ++ "px" )
+               , ( "top", (toString model.dropdown.top) ++ "px" )
+               ]
+           ]
+         , Ui.Styles.apply defaultStyle
+         ] |> List.concat
+        )
+        viewModel.contents
 
-    topPosition =
-      if bottom < window.height then
-        "bottom"
-      else
-        "top"
-
-    leftPosition =
-      if right < window.width then
-        "right"
-      else
-        "left"
-
-    position =
-      topPosition ++ "-" ++ leftPosition
+    children =
+      viewModel.children ++ [ dropdown ]
   in
-    { model | open = True, dropdownPosition = position }
+    node viewModel.tag attributes children
+
+
+{-| Tests if the given position is above the given selector.
+-}
+isOver : String -> Mouse.Position -> Bool
+isOver id position =
+  DOM.isOver (DOM.idSelector id)
+    { top = toFloat position.y, left = toFloat position.x }
+    |> Result.withDefault False
+
+
+{-| Updates a dropdown of a model.
+-}
+updateDropdown : (Dropdown -> Dropdown) -> Model a -> Model a
+updateDropdown function model =
+  { model | dropdown = function model.dropdown }
+
+
+{-| Converts `Side` to `Space`.
+-}
+getSpaceFromSide : Side -> Space
+getSpaceFromSide side =
+  case side of
+    Bottom ->
+      Positive
+
+    Right ->
+      Positive
+
+    Left ->
+      Negative
+
+    Top ->
+      Negative
+
+
+{-| Gets the other `Space` from a `Space`.
+-}
+stwitchSpace : Space -> Space
+stwitchSpace space =
+  case space of
+    Positive ->
+      Negative
+
+    Negative ->
+      Positive
+
+
+{-| Returns an empty rect (used as fallback).
+-}
+defaultRect : DOM.Dimensions
+defaultRect =
+  { top = 0, left = 0, right = 0, bottom = 0, width = 0, height = 0 }
+
+
+{-| Opens a dropdown with the given ID and dropdown model.
+-}
+openDropdown : String -> Dropdown -> Dropdown
+openDropdown uid model =
+  let
+    -- Get Window positions
+    window =
+      { height = DOM.Window.height ()
+      , width = DOM.Window.width ()
+      }
+
+    -- Get parent dimensions
+    parent =
+      DOM.getDimensionsSync (DOM.idSelector uid)
+        |> Result.withDefault defaultRect
+
+    -- Get dropdown dimensions
+    dropdown =
+      DOM.getDimensionsSync (DOM.idSelector (uid ++ "-dropdown"))
+        |> Result.withDefault defaultRect
+  in
+    { model
+      | left = calculateLeft window parent dropdown model
+      , top = calculateTop window parent dropdown model
+      , open = True
+    }
+
+
+{-| Decides position from the given arguments and `Space`.
+-}
+decideSide : Space -> Float -> Float -> Float -> Float -> Float
+decideSide side positiveOptimal negativeOptimal bound size =
+  case side of
+    Positive ->
+      if (positiveOptimal + size) > bound then
+        negativeOptimal
+      else
+        positiveOptimal
+
+    Negative ->
+      if negativeOptimal < 0 then
+        positiveOptimal
+      else
+        negativeOptimal
+
+
+{-| Decides the favored size from the given arguments.
+-}
+favored : Dropdown -> Float -> Float -> Float -> Float -> Float
+favored model high low bound size =
+  let
+    positiveOptimal =
+      low + model.offset
+
+    negativeOptimal =
+      high - size - model.offset
+  in
+    decideSide model.favoring positiveOptimal negativeOptimal bound size
+
+
+{-| Decides the alignment position from the given arguments.
+-}
+align : Dropdown -> Float -> Float -> Float -> Float -> Float
+align model high low bound size =
+  let
+    positiveOptimal =
+      high
+
+    negativeOptimal =
+      low - size
+  in
+    decideSide model.alignTo positiveOptimal negativeOptimal bound size
+
+
+{-| Calucates the left position from the given arguments.
+-}
+calculateLeft : { width : Float, height : Float } -> Dimensions -> Dimensions -> Dropdown -> Float
+calculateLeft window parent dropdown model =
+  let
+    maxiumum =
+      window.width - dropdown.width
+
+    optimal =
+      case model.direction of
+        Horizontal ->
+          favored model parent.left parent.right window.width dropdown.width
+
+        Vertical ->
+          align model parent.left parent.right window.width dropdown.width
+  in
+    min maxiumum optimal
+
+
+{-| Calucates the top position from the given arguments.
+-}
+calculateTop : { width : Float, height : Float } -> Dimensions -> Dimensions -> Dropdown -> Float
+calculateTop window parent dropdown model =
+  let
+    maxiumum =
+      window.height - dropdown.height
+
+    optimal =
+      case model.direction of
+        Horizontal ->
+          align model parent.top parent.bottom window.height dropdown.height
+
+        Vertical ->
+          favored model parent.top parent.bottom window.height dropdown.height
+  in
+    min maxiumum optimal

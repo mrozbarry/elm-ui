@@ -1,11 +1,14 @@
 module Ui.Checkbox exposing
-  ( Model, Msg, init, subscribe, update, view, render, viewToggle
+  ( Model, Msg, init, onChange, update, view, render, viewToggle
   , renderToggle, viewRadio, renderRadio, setValue )
 
-{-| Checkbox component with three different views.
+{-| Checkbox component with three different views (checkbox, radio, toggle).
 
 # Model
-@docs Model, Msg, init, subscribe, update
+@docs Model, Msg, init, update
+
+# Events
+@docs onChange
 
 # Views
 @docs view, render
@@ -17,19 +20,19 @@ module Ui.Checkbox exposing
 @docs setValue
 -}
 
-import Html.Attributes exposing (classList)
+import Html.Attributes exposing (attribute)
 import Html.Events.Extra exposing (onKeys)
 import Html.Events exposing (onClick)
-import Html exposing (node)
+import Html exposing (node, text)
 import Html.Lazy
-
-import Task
-import Dict
 
 import Ui.Helpers.Emitter as Emitter
 import Ui.Native.Uid as Uid
+import Ui.Icons
 import Ui
 
+import Ui.Styles.Checkbox exposing (defaultStyle)
+import Ui.Styles
 
 {-| Representation of a checkbox:
   - **disabled** - Whether or not the checkbox is disabled
@@ -53,29 +56,29 @@ type Msg
 
 {-| Initiaizes a checkbox with the given value.
 
-    checkbox = Ui.Checkbox.init False
+    checkbox = Ui.Checkbox.init ()
 -}
-init : Bool -> Model
-init value =
+init : () -> Model
+init _ =
   { uid = Uid.uid ()
   , disabled = False
   , readonly = False
-  , value = value
+  , value = False
   }
 
 
 {-| Subscribe to the changes of a checkbox.
 
-    Ui.Calendar.subscribe CheckboxChanged checkbox
+    subscription = Ui.Calendar.onChange CheckboxChanged checkbox
 -}
-subscribe : (Bool -> a) -> Model -> Sub a
-subscribe msg model =
+onChange : (Bool -> a) -> Model -> Sub a
+onChange msg model =
   Emitter.listenBool model.uid msg
 
 
 {-| Updates a checkbox.
 
-    Ui.Checkbox.update msg checkbox
+    ( updatedCheckbox, cmd ) = Ui.Checkbox.update msg checkbox
 -}
 update : Msg -> Model -> ( Model, Cmd Msg )
 update action model =
@@ -105,8 +108,8 @@ render : Model -> Html.Html Msg
 render model =
   node
     "ui-checkbox"
-    (attributes model)
-    [ Ui.icon "checkmark" False [] ]
+    (attributes "checkbox" model)
+    [ Ui.Icons.checkmark [] ]
 
 
 {-| Lazily renders a checkbox as a radio.
@@ -125,8 +128,8 @@ viewRadio model =
 renderRadio : Model -> Html.Html Msg
 renderRadio model =
   node
-    "ui-checkbox-radio"
-    (attributes model)
+    "ui-checkbox"
+    (attributes "radio" model)
     [ node "ui-checkbox-radio-circle" [] []
     ]
 
@@ -147,16 +150,19 @@ viewToggle model =
 renderToggle : Model -> Html.Html Msg
 renderToggle model =
   node
-    "ui-checkbox-toggle"
-    (attributes model)
-    [ node "ui-checkbox-toggle-bg" [] []
+    "ui-checkbox"
+    (attributes "toggle" model)
+    [ node "ui-checkbox-toggle-bg" []
+      [ node "ui-checkbox-toggle-span" [] [ text "ON"  ]
+      , node "ui-checkbox-toggle-span" [] [ text "OFF" ]
+      ]
     , node "ui-checkbox-toggle-handle" [] []
     ]
 
 
 {-| Sets the value of a checkbox to the given one.
 
-    Ui.Checkbox.setValue False checkbox
+    updatedCheckbox = Ui.Checkbox.setValue False checkbox
 -}
 setValue : Bool -> Model -> Model
 setValue value model =
@@ -165,24 +171,22 @@ setValue value model =
 
 {-| Returns attributes for a checkbox.
 -}
-attributes : Model -> List (Html.Attribute Msg)
-attributes model =
-  let
-    actions =
-      Ui.enabledActions
-        model
-        [ onClick Toggle
-        , onKeys
-            [ ( 13, Toggle )
-            , ( 32, Toggle )
-            ]
-        ]
-  in
-    [ classList
-        [ ( "disabled", model.disabled )
-        , ( "readonly", model.readonly )
-        , ( "checked", model.value )
+attributes : String -> Model -> List (Html.Attribute Msg)
+attributes kind model =
+  [ Ui.attributeList
+    [ ( "disabled", model.disabled )
+    , ( "readonly", model.readonly )
+    , ( "checked",  model.value    )
+    ]
+  , Ui.enabledActions model
+    [ onClick Toggle
+    , onKeys True
+        [ ( 13, Toggle )
+        , ( 32, Toggle )
         ]
     ]
-      ++ (Ui.tabIndex model)
-      ++ actions
+  , Ui.Styles.apply defaultStyle
+  , [ attribute "kind" kind ]
+  , Ui.tabIndex model
+  ]
+  |> List.concat

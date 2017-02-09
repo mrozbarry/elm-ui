@@ -1,10 +1,13 @@
 module Ui.Slider exposing
-  (Model, Msg, init, subscribe, subscriptions, update, view, render, setValue)
+  (Model, Msg, init, onChange, subscriptions, update, view, render, setValue)
 
 {-| Simple slider component.
 
 # Model
-@docs Model, Msg, init, subscribe, subscriptions, update
+@docs Model, Msg, init, subscriptions, update
+
+# Events
+@docs onChange
 
 # View
 @docs view, render
@@ -13,37 +16,33 @@ module Ui.Slider exposing
 @docs setValue
 -}
 
-import Html.Events.Geometry exposing (onWithDimensions, Dimensions)
-import Html.Attributes exposing (style, classList)
+import Html.Attributes exposing (style, id)
 import Html.Events.Extra exposing (onKeys)
 import Html exposing (node)
 import Html.Lazy
 
-import Dict
+import DOM exposing (Position)
 
 import Ui.Helpers.Emitter as Emitter
-import Ui.Native.Browser as Browser
 import Ui.Helpers.Drag as Drag
 import Ui.Native.Uid as Uid
 import Ui
 
+import Ui.Styles.Slider exposing (defaultStyle)
+import Ui.Styles
 
 {-| Representation of a slider:
-  - **startDistance** - The distance in pixels when the dragging can start
-  - **drag** - The drag for the slider
   - **disabled** - Whether or not the slider is disabled
   - **readonly** - Whether or not the slider is readonly
-  - **value** - The current value (0 - 100)
-  - **left** - The left position of the handle
   - **uid** - The unique identifier of the slider
+  - **value** - The current value (0 - 100)
+  - **drag** - The drag for the slider
 -}
 type alias Model =
-  { startDistance : Float
-  , drag : Drag.Model
+  { drag : Drag.Drag
   , disabled : Bool
   , readonly : Bool
   , value : Float
-  , left : Float
   , uid : String
   }
 
@@ -51,81 +50,73 @@ type alias Model =
 {-| Messages that a slider can receive.
 -}
 type Msg
-  = Move ( Float, Float )
-  | Lift Dimensions
-  | Click Bool
+  = Lift Position
+  | Move Position
   | Increment
   | Decrement
+  | End
 
 
 {-| Initializes a slider with the given value.
 
-    slider = Ui.Slider.init 0.5
+    slider =
+      Ui.Slider.init
+        |> Ui.Slider.setValue 0.5
 -}
-init : Float -> Model
-init value =
+init : () -> Model
+init _ =
   { uid = Uid.uid ()
-  , startDistance = 0
-  , drag = Drag.init
   , disabled = False
   , readonly = False
-  , value = value
-  , left = 0
+  , drag = Drag.init
+  , value = 0
   }
 
 
 {-| Subscribe to the changes of a slider.
 
-    ...
-    subscriptions =
-      \model -> Ui.Slider.subscribe SliderChanged model.slider
-    ...
+    subscriptions = Ui.Slider.onChange SliderChanged slider
 -}
-subscribe : (Float -> msg) -> Model -> Sub msg
-subscribe msg model =
+onChange : (Float -> msg) -> Model -> Sub msg
+onChange msg model =
   Emitter.listenFloat model.uid msg
 
 
 {-| Subscriptions for a slider.
 
-    ...
-    subscriptions =
-      \model ->
-        Sub.map
-          Slider
-          (Ui.Slider.subscriptions model.slider)
-    ...
+    subscriptions = Sub.map Slider (Ui.Slider.subscriptions slider)
 -}
 subscriptions : Model -> Sub Msg
 subscriptions model =
-  Drag.subscriptions Move Click model.drag.dragging
+  Sub.batch
+    [ Drag.onMove Move model
+    , Drag.onEnd End model
+    ]
 
 
 {-| Updates a slider.
 
-    Ui.Slider.update msg slider
+    ( updatedSlider, cmd ) = Ui.Slider.update msg slider
 -}
 update : Msg -> Model -> ( Model, Cmd Msg )
-update action model =
+update action ({ drag } as model) =
   case action of
-    Decrement ->
-      increment model
+    Move position ->
+      updateValue position model
 
-    Increment ->
+    End ->
+      ( Drag.end model , Cmd.none )
+
+    Decrement ->
       decrement model
 
-    Move ( x, y ) ->
-      handleMove x y model
+    Increment ->
+      increment model
 
-    Click pressed ->
-      handleClick pressed model
-
-    Lift ( position, dimensions, size ) ->
-      { model
-        | drag = Drag.lift dimensions position model.drag
-        , left = position.left - dimensions.left
-      }
-        |> clampLeft
+    Lift position ->
+      model
+        |> Drag.lift position
+        |> updateValue position
 
 
 {-| Lazily renders a slider.
@@ -145,104 +136,63 @@ render : Model -> Html.Html Msg
 render model =
   let
     position =
-      (toString (clamp 0 100 model.value)) ++ "%"
+      (toString model.value) ++ "%"
 
     actions =
-      Ui.enabledActions
-        model
-        [ onWithDimensions "mousedown" False Lift
-        , onKeys
-            [ ( 40, Increment )
-            , ( 38, Decrement )
-            , ( 37, Increment )
-            , ( 39, Decrement )
-            ]
-        ]
+      [ Drag.liftHandler Lift
+      , onKeys True
+          [ ( 40, Decrement )
+          , ( 38, Increment )
+          , ( 37, Decrement )
+          , ( 39, Increment )
+          ]
+      ]
+        |> Ui.enabledActions model
 
-    element =
-      node
-        "ui-slider"
-        ([ classList
-            [ ( "disabled", model.disabled )
-            , ( "readonly", model.readonly )
-            ]
-         ]
-          ++ (Ui.tabIndex model)
-          ++ actions
-        )
-        [ node
-            "ui-slider-bar"
-            []
-            [ node "ui-slider-progress" [ style [ ( "width", position ) ] ] [] ]
-        , node "ui-slider-handle" [ style [ ( "left", position ) ] ] []
+    attributes =
+      [ Ui.attributeList
+        [ ( "disabled", model.disabled )
+        , ( "readonly", model.readonly )
         ]
+      , Ui.Styles.apply defaultStyle
+      , [ id model.uid ]
+      , Ui.tabIndex model
+      , actions
+      ]
+        |> List.concat
+
+    bar =
+      node "ui-slider-bar" []
+        [ node "ui-slider-progress" [ style [ ( "width", position ) ] ] [] ]
   in
-    element
+    node "ui-slider" attributes
+      [ bar
+      , node "ui-slider-handle" [ style [ ( "left", position ) ] ] []
+      ]
 
 
 {-| Sets the value of the slider.
+
+    updatedSlider = Ui.Slider.setValue 10 slider
 -}
 setValue : Float -> Model -> Model
 setValue value model =
   { model | value = clamp 0 100 value }
 
 
-
------------------------------------ PRIVATE ------------------------------------
-
-
-{-| Updates a sliders value by coordinates.
+{-| Updates the value of the slider based on a position.
 -}
-handleMove : Float -> Float -> Model -> ( Model, Cmd Msg )
-handleMove x y model =
+updateValue : Position -> Model -> (Model, Cmd Msg)
+updateValue position ({ drag } as model) =
   let
-    dist =
-      distance diff
-
-    diff =
-      Drag.diff x y model.drag
-
-    left =
-      if dist >= model.startDistance then
-        model.drag.mouseStartPosition.left + diff.left - model.drag.dimensions.left
-      else
-        model.left
+    value =
+      Drag.relativePercentPosition position model
+        |> .left
+        |> (*) 100
+        |> clamp 0 100
   in
-    if model.drag.dragging then
-      { model | left = left }
-        |> clampLeft
-    else
-      ( model, Cmd.none )
-
-
-{-| Updates a slider, stopping the drag if the mouse isnt pressed.
--}
-handleClick : Bool -> Model -> ( Model, Cmd Msg )
-handleClick value model =
-  ( { model | drag = Drag.handleClick value model.drag }, Cmd.none )
-
-
-{-| Clamps left position of the handle to width of the slider.
--}
-clampLeft : Model -> ( Model, Cmd Msg )
-clampLeft model =
-  { model | left = clamp 0 model.drag.dimensions.width model.left }
-    |> updatePrecent
+    setValue value model
     |> sendValue
-
-
-{-| Updates the value to match the current position.
--}
-updatePrecent : Model -> Model
-updatePrecent model =
-  setValue (model.left / model.drag.dimensions.width * 100) model
-
-
-{-| Returns the length of a point from 0,0.
--}
-distance : Drag.Point -> Float
-distance diff =
-  sqrt diff.top ^ 2 + diff.left ^ 2
 
 
 {-| Increments the slider by 1 percent.
@@ -261,7 +211,7 @@ decrement model =
     |> sendValue
 
 
-{-| Sends the value to the valueAddress.
+{-| Sends the value to the app.
 -}
 sendValue : Model -> ( Model, Cmd Msg )
 sendValue model =

@@ -1,7 +1,7 @@
 module Ui.Container exposing
   ( Model, view, render
-  , row, rowStart, rowCenter, rowEnd
-  , column, columnStart, columnCenter, columnEnd )
+  , row, rowCenter, rowEnd
+  , column, columnCenter, columnEnd )
 
 {-| Flexbox container component.
 
@@ -12,21 +12,25 @@ module Ui.Container exposing
 @docs view, render
 
 # Row
-@docs row, rowStart, rowEnd, rowCenter
+@docs row, rowEnd, rowCenter
 
 # Column
-@docs column, columnStart, columnEnd, columnCenter
+@docs column, columnEnd, columnCenter
 -}
 
-import Html.Attributes exposing (classList, style)
+import Html.Attributes exposing (attribute)
 import Html exposing (node)
 import Html.Lazy
 
+import Ui.Styles.Container
+import Ui.Styles
+
+import Ui
 
 {-| Representation of a container:
-  - **direction** - Either "row" or "column"
   - **align** - Either "start", "center", "space-between", "space-around" or "end"
   - **compact** - Whether or not to have spacing between the children
+  - **direction** - Either "row" or "column"
 -}
 type alias Model =
   { direction : String
@@ -56,7 +60,7 @@ view model attributes children =
 -}
 render : Model -> List (Html.Attribute msg) -> List (Html.Html msg) -> Html.Html msg
 render model attributes children =
-  node "ui-container" ([ classes model ] ++ attributes) children
+  node "ui-container" ((basAttributes model) ++ attributes) children
 
 
 {-| Lazily renders a container as a row.
@@ -64,13 +68,6 @@ render model attributes children =
 row : List (Html.Attribute msg) -> List (Html.Html msg) -> Html.Html msg
 row attributes children =
   Html.Lazy.lazy3 render rowOptions attributes children
-
-
-{-| Lazily renders a container as a row with content aligned to start.
--}
-rowStart : List (Html.Attribute msg) -> List (Html.Html msg) -> Html.Html msg
-rowStart attributes children =
-  Html.Lazy.lazy3 render { rowOptions | align = "start" } attributes children
 
 
 {-| Lazily renders a container as a row with content aligned to center.
@@ -94,13 +91,6 @@ column attributes children =
   Html.Lazy.lazy3 render columnOptions attributes children
 
 
-{-| Lazily renders a container as a column with content aligned to start.
--}
-columnStart : List (Html.Attribute msg) -> List (Html.Html msg) -> Html.Html msg
-columnStart attributes children =
-  Html.Lazy.lazy3 render { columnOptions | align = "start" } attributes children
-
-
 {-| Lazily renders a container as a column with content aligned to center.
 -}
 columnCenter : List (Html.Attribute msg) -> List (Html.Html msg) -> Html.Html msg
@@ -120,8 +110,8 @@ columnEnd attributes children =
 rowOptions : Model
 rowOptions =
   { direction = "row"
-  , align = "start"
   , compact = False
+  , align = "start"
   }
 
 
@@ -130,17 +120,19 @@ rowOptions =
 columnOptions : Model
 columnOptions =
   { direction = "column"
-  , align = "start"
   , compact = False
+  , align = "start"
   }
 
 
-{-| Returns classes for a container.
+{-| Returns basic attributes for a container.
 -}
-classes : Model -> Html.Attribute msg
-classes model =
-  classList
-    [ ( "direction-" ++ model.direction, True )
-    , ( "align-" ++ model.align, True )
-    , ( "compact", model.compact )
+basAttributes : Model -> List (Html.Attribute msg)
+basAttributes model =
+  [ Ui.attributeList [ ( "compact", model.compact ) ]
+  , Ui.Styles.apply Ui.Styles.Container.defaultStyle
+  , [ attribute "direction" model.direction
+    , attribute "align" model.align
     ]
+  ]
+  |> List.concat

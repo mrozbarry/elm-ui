@@ -1,10 +1,13 @@
 module Ext.Color exposing (..)
 
-{-| This module provides utility functions for colors and the ability to convert
-colors to HSV format.
+{-| This module provides utility functions for colors and the ability to
+convert colors to HSV format.
 
 # Representations
-@docs Hsv
+@docs Hsv, Rgba
+
+# Updating
+@docs updateColor, setRed, setGreen, setBlue, setAlpha
 
 # Converting
 @docs hsvToRgb
@@ -26,7 +29,6 @@ import Color exposing (Color)
 import Json.Decode as JD
 import Json.Encode as JE
 
-
 {-| HSV color type.
 -}
 type alias Hsv =
@@ -35,6 +37,69 @@ type alias Hsv =
   , alpha : Float
   , hue : Float
   }
+
+
+{-| Rgba color type.
+-}
+type alias Rgba =
+  { alpha : Float
+  , green : Int
+  , blue : Int
+  , red : Int
+  }
+
+
+{-| Updates an Hsv color converting it to Rgb and then converting the result to
+Color.
+-}
+updateColor : (Rgba -> Rgba) -> Hsv -> Color
+updateColor function color =
+  let
+    currentColor =
+      color
+        |> hsvToRgb
+        |> Color.toRgb
+
+    updatedColor =
+      function currentColor
+  in
+    Color.rgba
+      updatedColor.red
+      updatedColor.green
+      updatedColor.blue
+      updatedColor.alpha
+
+
+{-| Converts a Hsv to Rgba and then sets the red value to the given value.
+-}
+setRed : Int -> Hsv -> Hsv
+setRed value =
+  updateColor (\c -> { c | red = clamp 0 255 value })
+    >> toHsv
+
+
+{-| Converts a Hsv to Rgba and then sets the green value to the given value.
+-}
+setGreen : Int -> Hsv -> Hsv
+setGreen value =
+  updateColor (\c -> { c | green = clamp 0 255 value })
+    >> toHsv
+
+
+{-| Converts a Hsv to Rgba and then sets the blue value to the given value.
+-}
+setBlue : Int -> Hsv -> Hsv
+setBlue value =
+  updateColor (\c -> { c | blue = clamp 0 255 value })
+    >> toHsv
+
+
+{-| Converts a Hsv to Rgba and then sets the alpha value to the given value.
+-}
+setAlpha : Float -> Hsv -> Hsv
+setAlpha value =
+  updateColor (\c -> { c | alpha = clamp 0 1 value })
+    >> toHsv
 
 
 {-| Decodes a HSV color type from a four element tuple.
@@ -127,11 +192,18 @@ hsvToRgb color =
       color.alpha
 
 
+
 {-| Extract the components of a color in the HSV format.
 -}
 toHsv : Color -> Hsv
 toHsv color =
   let
+    fmod f n =
+      let
+        integer = floor f
+      in
+        toFloat (integer % n) + f - toFloat integer
+
     rgba =
       (Color.toRgb color)
 
@@ -163,7 +235,7 @@ toHsv color =
       if delta == 0 then
         0
       else if cmax == red then
-        60 * (Ext.Number.remFloat ((green - blue) / delta) 6)
+        60 * (fmod ((green - blue) / delta) 6)
       else if cmax == green then
         60 * (((blue - red) / delta) + 2)
       else

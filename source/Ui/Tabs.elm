@@ -1,4 +1,4 @@
-module Ui.Tabs exposing (Model, Msg, init, update, render, view)
+module Ui.Tabs exposing (ViewModel, Model, Msg, init, update, render, view)
 
 {-| A component for tabbed content.
 
@@ -6,10 +6,9 @@ module Ui.Tabs exposing (Model, Msg, init, update, render, view)
 @docs Model, Msg, init, update
 
 # View
-@docs view, render
+@docs ViewModel, view, render
 -}
 
-import Html.Attributes exposing (classList)
 import Html.Events.Extra exposing (onKeys)
 import Html.Events exposing (onClick)
 import Html exposing (node, text)
@@ -17,8 +16,9 @@ import Html.Lazy
 
 import List.Extra
 
+import Ui.Styles.Tabs exposing (defaultStyle)
+import Ui.Styles
 import Ui
-
 
 {-| Representation of a tabs component:
   - **readonly** - Whether or not the component is readonly
@@ -32,6 +32,16 @@ type alias Model =
   }
 
 
+{-| Representation of a tabs component view model:
+  - **contents** - The list of contents for the tabs
+  - **address** - The address
+-}
+type alias ViewModel msg =
+  { contents : List ( String, Html.Html msg )
+  , address : (Msg -> msg)
+  }
+
+
 {-| Messages that a tabs component can receive.
 -}
 type Msg
@@ -40,19 +50,19 @@ type Msg
 
 {-| Initializes a tabs component with the index of the selected tab.
 
-    tabs = Ui.Tabs.init 0
+    tabs = Ui.Tabs.init ()
 -}
-init : Int -> Model
-init selected =
-  { selected = selected
-  , readonly = False
+init : () -> Model
+init _ =
+  { readonly = False
   , disabled = False
+  , selected = 0
   }
 
 
 {-| Updates a tabs component.
 
-    Ui.Tabs.update msg tabs
+    ( updatedTabs, cmd ) = Ui.Tabs.update msg tabs
 -}
 update : Msg -> Model -> ( Model, Cmd Msg )
 update action model =
@@ -64,32 +74,32 @@ update action model =
 {-| Lazily renders a tabs component.
 
     Ui.Tabs.render
-      [("title", content), ("title", content)]
-      Tabs
+      { contents =
+        [ ("Tab 1", tab1Contents)
+        , ("title", tab2Contents)
+        ]
+      , address Tabs
+      }
       tabs
 -}
-view :
-  List ( String, Html.Html msg )
-  -> (Msg -> msg)
-  -> Model
-  -> Html.Html msg
-view contents address model =
-  Html.Lazy.lazy3 render contents address model
+view : ViewModel msg -> Model -> Html.Html msg
+view viewModel model =
+  Html.Lazy.lazy2 render viewModel model
 
 
 {-| Renders a tabs component.
 
     Ui.Tabs.render
-      [("title", content), ("title", content)]
-      Tabs
+      { contents =
+        [ ("Tab 1", tab1Contents)
+        , ("title", tab2Contents)
+        ]
+      , address Tabs
+      }
       tabs
 -}
-render :
-  List ( String, Html.Html msg )
-  -> (Msg -> msg)
-  -> Model
-  -> Html.Html msg
-render contents address model =
+render : ViewModel msg -> Model -> Html.Html msg
+render { contents, address } model =
   let
     tabs =
       List.indexedMap
@@ -97,24 +107,24 @@ render contents address model =
         contents
 
     activeTab =
-      List.Extra.getAt model.selected contents
+      contents
+        |> List.Extra.getAt model.selected
         |> Maybe.map Tuple.second
         |> Maybe.withDefault (text "")
   in
     node
       "ui-tabs"
-      [ classList
+      ( [ Ui.attributeList
           [ ( "disabled", model.disabled )
           , ( "readonly", model.readonly )
           ]
-      ]
-      [ node "ui-tab-handles" [] tabs
+        , Ui.Styles.apply defaultStyle
+        ]
+        |> List.concat
+      )
+      [ node "ui-tabs-handles" [] tabs
       , node "ui-tabs-content" [] [ activeTab ]
       ]
-
-
-
------------------------------------ PRIVATE ------------------------------------
 
 
 {-| Renders a tab handle.
@@ -126,12 +136,12 @@ renderTabHandle address model index ( title, contents ) =
       Select index
   in
     node
-      "ui-tab-handle"
-      ([ classList [ ( "selected", index == model.selected ) ] ]
+      "ui-tabs-handle"
+      ( (Ui.attributeList [ ( "selected", index == model.selected ) ])
         ++ (Ui.enabledActions
               model
               [ onClick (address action)
-              , onKeys
+              , onKeys True
                   [ ( 13, address action )
                   , ( 32, address action )
                   ]

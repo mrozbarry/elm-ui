@@ -1,10 +1,14 @@
 module Ui.Loader exposing
-  (Model, Msg, init, update, render, view, overlayView, barView, start, finish)
+  ( Model, Msg, init, update, render, view, overlayView, barView, start, finish
+  , timeout )
 
 {-| Loading component, it has a waiting period before showing itself.
 
 # Model
 @docs Model, Msg, init, update
+
+# DSL
+@docs timeout
 
 # View
 @docs view, render
@@ -16,17 +20,20 @@ module Ui.Loader exposing
 @docs start, finish
 -}
 
-import Html.Attributes exposing (classList, class)
-import Html exposing (node, div)
+import Html.Attributes exposing (attribute)
+import Html exposing (node)
 import Html.Lazy
 
 import Process
 import Task
 
+import Ui.Styles.Loader exposing (defaultStyle)
+import Ui.Styles
+import Ui
 
 {-| Representation of a loader:
-  - **timeout** - The waiting perid in milliseconds
   - **loading** - Whether or not the loading is started
+  - **timeout** - The waiting period in milliseconds
   - **shown** - Whether or not the loader is shown
 -}
 type alias Model =
@@ -44,19 +51,28 @@ type Msg
 
 {-| Initializes a loader with the given timeout.
 
-    loader = Ui.Loader.init 200
+    loader =
+      Ui.Loader.init ()
+        |> Ui.Loader.timeout 200
 -}
-init : Float -> Model
-init timeout =
-  { timeout = timeout
-  , loading = False
+init : () -> Model
+init _ =
+  { loading = False
+  , timeout = 200
   , shown = False
   }
 
 
+{-| Sets the timeout (in milliseconds) of a loader.
+-}
+timeout : Float -> Model -> Model
+timeout value model =
+  { model | timeout = value }
+
+
 {-| Updates a loader.
 
-    Ui.Loader.update msg loader
+    ( updatedLoader, cmd ) = Ui.Loader.update msg loader
 -}
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
@@ -103,17 +119,18 @@ render : String -> List (Html.Html msg) -> Model -> Html.Html msg
 render kind content model =
   node
     "ui-loader"
-    [ classList
-        [ ( "ui-loader-" ++ kind, True )
-        , ( "loading", model.shown )
-        ]
-    ]
+    ( [ Ui.attributeList [ ( "loading", model.shown ) ]
+      , Ui.Styles.apply defaultStyle
+      , [ attribute "kind" kind ]
+      ]
+      |> List.concat
+    )
     content
 
 
 {-| Finishes the loading process.
 
-    Ui.Loader.finish loader
+    updatedLoader = Ui.Loader.finish loader
 -}
 finish : Model -> Model
 finish model =
@@ -122,7 +139,7 @@ finish model =
 
 {-| Starts the loading process.
 
-    Ui.Loader.start loader
+    ( updatedLoader, cmd ) = Ui.Loader.start loader
 -}
 start : Model -> ( Model, Cmd Msg )
 start model =
@@ -135,9 +152,8 @@ start model =
 -}
 loadingRectangles : Html.Html msg
 loadingRectangles =
-  div
-    [ class "ui-loader-rectangles" ]
-    [ div [] []
-    , div [] []
-    , div [] []
+  node "ui-loader-rectangles" []
+    [ node "ui-loader-rectangle" [] []
+    , node "ui-loader-rectangle" [] []
+    , node "ui-loader-rectangle" [] []
     ]

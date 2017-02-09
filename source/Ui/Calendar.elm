@@ -1,13 +1,20 @@
 module Ui.Calendar exposing
-  ( Model, Msg, init, subscribe, update, view, render
+  ( Model, Msg, init, onChange, update, view, render, selectable
   , setValue, nextDay, previousDay )
 
-{-| Calendar component with which the user can:
+{-| Simple calendar component:
+  - Change month by clicking on arrows on the left or right in the header
   - Select a date by clicking on it
-  - Change the month with arrows
+  - Can be rendered in a given locale
 
 # Model
-@docs Model, Msg, init, subscribe, update
+@docs Model, Msg, init, update
+
+# DSL
+@docs selectable
+
+# Events
+@docs onChange
 
 # View
 @docs view, render
@@ -16,31 +23,32 @@ module Ui.Calendar exposing
 @docs setValue, nextDay, previousDay
 -}
 
-import Html.Attributes exposing (classList)
-import Html.Events exposing (onMouseDown)
 import Html exposing (node, text, span)
+import Html.Events exposing (onClick)
 import Html.Lazy
 
-import Date.Extra.Format exposing (isoDateFormat, format)
 import Date.Extra.Config.Configs as DateConfigs
+import Date.Extra.Format exposing (format)
 import Time exposing (Time)
 import Ext.Date
 import Date
-import List
 
 import Ui.Helpers.Emitter as Emitter
 import Ui.Native.Uid as Uid
 import Ui.Container
+import Ui.Icons
 import Ui
 
+import Ui.Styles.Calendar exposing (defaultStyle)
+import Ui.Styles
 
 {-| Representation of a calendar component:
-  - **selectable** - Whether or not the user can select a date by clicking
-  - **readonly** - Whether or not the calendar is interactive
+  - **selectable** - Whether or not the user can select a date by clicking on it
   - **disabled** - Whether or not the calendar is disabled
-  - **value** - The current selected date
-  - **date** - The month in which this date is will be displayed
+  - **readonly** - Whether or not the calendar is readonly
   - **uid** - The unique identifier of the calendar
+  - **date** - The month which is displayed
+  - **value** - The current selected date
 -}
 type alias Model =
   { selectable : Bool
@@ -60,42 +68,49 @@ type Msg
   | NextMonth
 
 
-{-| Initializes a calendar with the given selected date.
+{-| Initializes a calendar.
 
-    calendar = Ui.Calendar.init (Ext.Date.create 1977 5 25)
+    calendar = Ui.Calendar.init ()
 -}
-init : Date.Date -> Model
-init date =
-  { uid = Uid.uid ()
+init : () -> Model
+init _ =
+  { value = Ext.Date.now ()
+  , date = Ext.Date.now ()
   , selectable = True
   , disabled = False
   , readonly = False
-  , value = date
-  , date = date
+  , uid = Uid.uid ()
   }
+
+
+{-| Sets the selectable property of a calendar.
+-}
+selectable : Bool -> Model -> Model
+selectable value model =
+  { model | selectable = value }
 
 
 {-| Subscribe to the changes of a calendar.
 
-    Ui.Calendar.subscribe CalendarChanged calendar
+    subscription = Ui.Calendar.onChange CalendarChanged calendar
 -}
-subscribe : (Time -> msg) -> Model -> Sub msg
-subscribe msg model =
+onChange : (Time -> msg) -> Model -> Sub msg
+onChange msg model =
   Emitter.listenFloat model.uid msg
 
 
 {-| Updates a calendar.
 
-    Ui.Calendar.update msg calendar
+    ( updatedCalendar, cmd ) = Ui.Calendar.update msg calendar
 -}
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
   case msg of
-    NextMonth ->
-      ( { model | date = Ext.Date.nextMonth model.date }, Cmd.none )
-
     PreviousMonth ->
       ( { model | date = Ext.Date.previousMonth model.date }, Cmd.none )
+
+    NextMonth ->
+      ( { model | date = Ext.Date.nextMonth model.date }, Cmd.none )
 
     Select date ->
       if Ext.Date.isSameDate model.value date then
@@ -136,30 +151,32 @@ render locale model =
 
     -- The cells before the month
     paddingLeftItems =
-      Ext.Date.datesInMonth (Ext.Date.previousMonth month)
+      Ext.Date.previousMonth month
+        |> Ext.Date.datesInMonth
         |> List.reverse
         |> List.take (paddingLeft month)
         |> List.reverse
 
-    -- The cells after the month -
+    -- The cells after the month
     paddingRightItems =
-      Ext.Date.datesInMonth (Ext.Date.nextMonth month)
+      Ext.Date.nextMonth month
+        |> Ext.Date.datesInMonth
         |> List.take (42 - leftPadding - (List.length dates))
 
-    -- All of the 42 cells combined --
+    -- All of the 42 cells combined
     cells =
       paddingLeftItems
         ++ dates
         ++ paddingRightItems
-        |> List.map (\item -> renderCell item model)
+        |> List.map (renderCell model)
 
     nextAction =
-      Ui.enabledActions model [ onMouseDown NextMonth ]
+      Ui.enabledActions model [ onClick NextMonth ]
 
     previousAction =
-      Ui.enabledActions model [ onMouseDown PreviousMonth ]
+      Ui.enabledActions model [ onClick PreviousMonth ]
 
-    {- Header container -}
+    -- Header container
     container =
       Ui.Container.view
         { compact = True
@@ -167,31 +184,34 @@ render locale model =
         , direction = "row"
         }
         []
-        [ Ui.icon "chevron-left" (not model.readonly) previousAction
-        , node "div" [] [ text (format (DateConfigs.getConfig locale) "%Y - %B" month) ]
-        , Ui.icon "chevron-right" (not model.readonly) nextAction
+        [ Ui.Icons.chevronLeft previousAction
+        , node "div" []
+          [ text (format (DateConfigs.getConfig locale) "%Y - %B" month) ]
+        , Ui.Icons.chevronRight nextAction
         ]
   in
     node
       "ui-calendar"
-      [ classList
-          [ ( "disabled", model.disabled )
+      ( [ Ui.attributeList
+          [ ( "selectable", model.selectable )
+          , ( "disabled", model.disabled )
           , ( "readonly", model.readonly )
-          , ( "selectable", model.selectable )
           ]
-      ]
+        , Ui.Styles.apply defaultStyle
+        ]
+        |> List.concat
+      )
       [ container
-      , node
-          "ui-calendar-header"
-          []
-          (List.map (\item -> span [] [ text item ]) dayNames)
+      , node "ui-calendar-header" []
+        (List.map (\item -> span [] [ text item ]) (dayNames locale))
       , node "ui-calendar-table" [] cells
       ]
 
 
 {-| Sets the value of a calendar.
 
-    Ui.Calendar.setValue (Ext.Date.createDate 1977 5 25) calendar
+    updatedCalendar =
+      Ui.Calendar.setValue (Ext.Date.createDate 1977 5 25) calendar
 -}
 setValue : Date.Date -> Model -> Model
 setValue date model =
@@ -252,17 +272,30 @@ paddingLeft date =
       6
 
 
-{-| Short names of days.
+{-| Returns the short names of days.
 -}
-dayNames : List String
-dayNames =
-  [ "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" ]
+dayNames : String -> List String
+dayNames locale =
+  let
+    config =
+      DateConfigs.getConfig locale
+        |> .i18n
+  in
+    [ Date.Mon
+    , Date.Tue
+    , Date.Wed
+    , Date.Thu
+    , Date.Fri
+    , Date.Sat
+    , Date.Sun
+    ]
+      |> List.map config.dayShort
 
 
 {-| Renders a single cell.
 -}
-renderCell : Date.Date -> Model -> Html.Html Msg
-renderCell date model =
+renderCell : Model -> Date.Date -> Html.Html Msg
+renderCell model date =
   let
     sameMonth =
       Ext.Date.isSameMonth date model.date
@@ -271,23 +304,22 @@ renderCell date model =
       model.selectable && (Ext.Date.isSameDate date model.value)
 
     click =
-      if
-        model.selectable
-          && sameMonth
-          && not model.disabled
-          && not model.readonly
+      if not model.disabled
+      && not model.readonly
+      && model.selectable
+      && sameMonth
       then
-        [ onMouseDown (Select date) ]
+        [ onClick (Select date) ]
       else
         []
 
-    classes =
-      classList
-        [ ( "selected", value )
-        , ( "inactive", not sameMonth )
+    attributes =
+      Ui.attributeList
+        [ ( "inactive", not sameMonth )
+        , ( "selected", value )
         ]
   in
     node
       "ui-calendar-cell"
-      ([ classes ] ++ click)
+      (attributes ++ click)
       [ text (toString (Date.day date)) ]

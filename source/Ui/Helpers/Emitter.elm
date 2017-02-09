@@ -39,7 +39,6 @@ import Task exposing (Task)
 import Native.FileManager
 import Json.Encode as JE
 
-
 {-| Representation of a command.
 -}
 type MyCmd msg

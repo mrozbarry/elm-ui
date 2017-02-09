@@ -1,10 +1,17 @@
 module Ui.Tagger exposing
-  (Tag, Model, Msg, init, subscribe, update, view, render, setValue)
+  ( Tag, Model, Msg, init, update, view, render, setValue, onCreate, onRemove
+  , placeholder, removeable )
 
 {-| Component for displaying tags and handling it's events (adding / removing).
 
 # Model
-@docs Model, Msg, Tag, init, subscribe, update
+@docs Model, Msg, Tag, init, update
+
+# Events
+@docs onCreate, onRemove
+
+# DSL
+@docs removeable, placeholder
 
 # View
 @docs view, render
@@ -15,26 +22,25 @@ module Ui.Tagger exposing
 
 import String
 
-import Html.Attributes exposing (classList)
 import Html.Events.Extra exposing (onKeys)
 import Html.Events exposing (onClick)
 import Html exposing (node, text)
 import Html.Lazy
 
-import Json.Decode as JD
-import Json.Encode as JE
-
 import Ui.Helpers.Emitter as Emitter
 import Ui.Native.Uid as Uid
 import Ui.IconButton
 import Ui.Container
+import Ui.Icons
 import Ui.Input
 import Ui
 
+import Ui.Styles.Tagger exposing (defaultStyle)
+import Ui.Styles
 
 {-| Represents a tag:
-  - **label** - The label to display
   - **id** - The identifier of the tag
+  - **label** - The label to display
 -}
 type alias Tag =
   { label : String
@@ -43,11 +49,11 @@ type alias Tag =
 
 
 {-| Representation of a tagger component:
-  - **input** - The model of the input field
-  - **removeable** - Whether or not tags can be removed
   - **disabled** - Whether or not the tagger is disabled
   - **readonly** - Whether or not the tagger is readonly
+  - **removeable** - Whether or not tags can be removed
   - **uid** - The unique identifier of the chooser
+  - **input** - The model of the input field
 -}
 type alias Model =
   { input : Ui.Input.Model
@@ -68,33 +74,56 @@ type Msg
 
 {-| Initializes a tagger.
 
-    tagger = Ui.Tagger.init "Add a tag..."
+    tagger =
+      Ui.Tagger.init ()
+        |> Ui.Tagger.removeable False
+        |> Ui.Tagger.placeholder "Add tag..."
 -}
-init : String -> Model
-init placeholder =
-  { input = Ui.Input.init "" placeholder
-  , uid = Uid.uid ()
+init : () -> Model
+init _ =
+  { input = Ui.Input.init ()
   , removeable = True
   , disabled = False
   , readonly = False
+  , uid = Uid.uid ()
   }
 
 
-{-| Subscribe to the changes of a tagger.
-
-    Ui.Tagger.subscribe AddTag RemoveTag model.tagger
+{-| Sets whether or not tags can be removed.
 -}
-subscribe : (String -> msg) -> (String -> msg) -> Model -> Sub msg
-subscribe create remove model =
-  Sub.batch
-    [ Emitter.listenString (model.uid ++ "-create") create
-    , Emitter.listenString (model.uid ++ "-remove") remove
-    ]
+removeable : Bool -> Model -> Model
+removeable value model =
+  { model | removeable = value }
+
+
+{-| Sets the placeholder of the input input of a tagger.
+-}
+placeholder : String -> Model -> Model
+placeholder value model =
+  { model | input = Ui.Input.placeholder value model.input }
+
+
+{-| Subscribe to the **create** events of a tagger.
+
+    subscriptions = Ui.Tagger.onCreate AddTag tagger
+-}
+onCreate : (String -> msg) -> Model -> Sub msg
+onCreate msg model =
+  Emitter.listenString (model.uid ++ "-create") msg
+
+
+{-| Subscribe to the **remove** events of a tagger.
+
+    subscriptions = Ui.Tagger.onRemove RemoveTag tagger
+-}
+onRemove : (String -> msg) -> Model -> Sub msg
+onRemove msg model =
+  Emitter.listenString (model.uid ++ "-remove") msg
 
 
 {-| Updates a tagger.
 
-    Ui.Tagger.update msg tagger
+    ( updatedTagger, cmd ) = Ui.Tagger.update msg tagger
 -}
 update : Msg -> Model -> ( Model, Cmd Msg )
 update action model =
@@ -152,31 +181,33 @@ render tags model =
 
     button =
       { disabled = model.disabled || model.readonly || isEmpty
+      , glyph = Ui.Icons.plus []
       , readonly = False
       , kind = "primary"
       , size = "medium"
-      , glyph = "plus"
       , side = "left"
       , text = ""
       }
 
-    classes =
-      classList
+    attributes =
+      [ Ui.attributeList
         [ ( "disabled", model.disabled )
         , ( "readonly", model.readonly )
         ]
+      , Ui.Styles.apply defaultStyle
+      , actions
+      ]
+      |> List.concat
 
     actions =
       Ui.enabledActions
         model
-        [ onKeys
-            [ ( 13, Create )
-            ]
+        [ onKeys True [ ( 13, Create ) ]
         ]
   in
     node
       "ui-tagger"
-      (classes :: actions)
+      attributes
       [ Ui.Container.row
           []
           [ Html.map Input (Ui.Input.view updatedInput)
@@ -191,11 +222,15 @@ render tags model =
 
 {-| Sets the value of a taggers input.
 
-    Ui.Tagger.setValue "" tagger
+    ( updatedTagger, cmd ) = Ui.Tagger.setValue "" tagger
 -}
-setValue : String -> Model -> Model
+setValue : String -> Model -> ( Model, Cmd Msg)
 setValue value model =
-  { model | input = Ui.Input.setValue value model.input }
+  let
+    ( input, cmd ) =
+      Ui.Input.setValue value model.input
+  in
+    ( { model | input = input }, Cmd.map Input cmd )
 
 
 {-| Renders a tag.
@@ -207,11 +242,9 @@ renderTag model tag =
       if model.disabled || model.readonly || not model.removeable then
         text ""
       else
-        Ui.icon
-          "android-close"
-          True
+        Ui.Icons.close
           ([ onClick (Remove tag.id)
-           , onKeys [ ( 13, Remove tag.id ) ]
+           , onKeys True [ ( 13, Remove tag.id ) ]
            ]
             ++ (Ui.tabIndex model)
           )

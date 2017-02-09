@@ -1,12 +1,19 @@
 module Ui.Chooser exposing
-  ( Model, Item, Msg, init, subscribe, update, view, render
-  , close, toggleItem, getFirstSelected, updateData, selectFirst, setValue )
+  ( Model, Item, Msg, init, onChange, update, view, render, subscriptions
+  , close, toggleItem, getFirstSelected, updateData, selectFirst, setValue
+  , placeholder, closeOnSelect, deselectable, searchable, multiple, items )
 
 {-| This is a component for selecting a single / multiple items
-form a list of choises, with lots of options.
+form a list of choices, with lots of options.
 
 # Model
-@docs Model, Item, Msg, init, subscribe, update
+@docs Model, Item, Msg, init, subscriptions, update
+
+# Events
+@docs onChange
+
+# DSL
+@docs placeholder, closeOnSelect, deselectable, searchable, multiple, items
 
 # View
 @docs view, render
@@ -15,9 +22,10 @@ form a list of choises, with lots of options.
 @docs setValue, toggleItem, close, getFirstSelected, updateData, selectFirst
 -}
 
-import Html.Events exposing (onFocus, onBlur, onClick, onInput)
-import Html.Events.Extra exposing (onPreventDefault, onStop)
-import Html exposing (span, text, node, input, Html)
+import Html.Events exposing (onFocus, onBlur, onInput, onMouseDown)
+import Html.Events.Extra exposing (onPreventDefault, onKeys)
+import Html exposing (text, node, input)
+import Html.Keyed
 import Html.Lazy
 
 import Html.Attributes
@@ -26,7 +34,6 @@ import Html.Attributes
     , placeholder
     , attribute
     , readonly
-    , classList
     , disabled
     )
 
@@ -42,37 +49,43 @@ import Ui.Helpers.Intendable as Intendable
 import Ui.Helpers.Dropdown as Dropdown
 import Ui.Helpers.Emitter as Emitter
 import Ui.Native.Uid as Uid
+import Ui.ScrolledPanel
 import Ui
 
+import Ui.Styles.Chooser exposing (defaultStyle)
+import Ui.Styles
 
-{-| Representation of an selectable item.
+{-| Representation of an selectable item:
+  - **value** - The value of the item (it is sent when selected items change)
+  - **id** - The unique identifier of the item
+  - **label** - The label of the item
 -}
 type alias Item =
   { label : String
   , value : String
+  , id : String
   }
 
 
 {-| Representation of a chooser:
-  - **dropdownPosition** - Where the dropdown is positioned
-  - **render** - Function to render the items
-  - **selected** - A *Set* of values of selected items
-  - **placeholder** - The text to display when no item is selected
   - **closeOnSelect** - Whether or not to close the dropdown after selecting
-  - **deselectable** - Whether or not it can have no selected value
   - **intended** - The currently intended value (for keyboard selection)
-  - **searchable** - Whether or not a user can filter the items
   - **data** - List of items to select from and display in the dropdown
   - **multiple** - Whether or not the user can select multiple items
+  - **deselectable** - Whether or not it can have no selected value
+  - **placeholder** - The text to display when no item is selected
+  - **searchable** - Whether or not a user can filter the items
   - **disabled** - Whether or not the chooser is disabled
   - **readonly** - Whether or not the chooser is readonly
-  - **value** - The value of the input
+  - **selected** - A *Set* of values of selected items
   - **uid** - The unique identifier of the chooser
-  - **open** - Whether or not the dropdown is open
+  - **dropdown** - The model for the dropdown
+  - **render** - Function to render an item
+  - **value** - The value of the input
 -}
 type alias Model =
-  { dropdownPosition : String
-  , render : Item -> Html Msg
+  { render : Item -> Html.Html Msg
+  , dropdown : Dropdown.Dropdown
   , selected : Set String
   , placeholder : String
   , closeOnSelect : Bool
@@ -85,66 +98,58 @@ type alias Model =
   , readonly : Bool
   , value : String
   , uid : String
-  , open : Bool
   }
 
 
 {-| Messages that a chooser can recieve.
 -}
 type Msg
-  = Toggle Dropdown.Dimensions
-  | Focus Dropdown.Dimensions
-  | Close Dropdown.Dimensions
-  | Enter Dropdown.Dimensions
-  | Next Dropdown.Dimensions
-  | Prev Dropdown.Dimensions
+  = Dropdown Dropdown.Msg
   | Filter String
   | Select String
+  | Toggle
+  | Focus
+  | Close
+  | Enter
+  | Next
+  | Prev
   | NoOp
   | Blur
 
 
 {-| Initializes a chooser with the given values.
 
-    chooser = Ui.Chooser.init items placeholder selectedValue
+    chooser =
+      Ui.Chooser.init ()
+        |> Ui.Chooser.placeholder "Select an item..."
+        |> Ui.Chooser.searchable True
 -}
-init : List Item -> String -> String -> Model
-init data placeholder value =
-  let
-    selected =
-      if value == "" then
-        Set.empty
-      else
-        Set.singleton value
-  in
-    { render = (\item -> span [] [ text item.label ])
-    , dropdownPosition = "bottom"
-    , placeholder = placeholder
-    , uid = Uid.uid ()
-    , closeOnSelect = False
-    , deselectable = False
-    , selected = selected
-    , searchable = False
-    , multiple = False
-    , disabled = False
-    , readonly = False
-    , intended = ""
-    , open = False
-    , data = data
-    , value = ""
-    }
-      |> intendFirst
+init : () -> Model
+init _ =
+  { render = (\item -> text item.label)
+  , dropdown = Dropdown.init
+  , closeOnSelect = False
+  , deselectable = False
+  , selected = Set.empty
+  , searchable = False
+  , multiple = False
+  , disabled = False
+  , readonly = False
+  , placeholder = ""
+  , uid = Uid.uid ()
+  , intended = ""
+  , value = ""
+  , data = []
+  }
+    |> Dropdown.offset 5
 
 
 {-| Subscribe to the changes of a chooser.
 
-    ...
-    subscriptions =
-      \model -> Ui.Chooser.subscribe ChooserChanged model.chooser
-    ...
+    subscription = Ui.Chooser.onChange ChooserChanged chooser
 -}
-subscribe : (Set String -> msg) -> Model -> Sub msg
-subscribe msg model =
+onChange : (Set String -> msg) -> Model -> Sub msg
+onChange msg model =
   let
     decoder =
       JD.list JD.string
@@ -153,25 +158,82 @@ subscribe msg model =
     Emitter.listen model.uid (Emitter.decode decoder Set.empty msg)
 
 
+{-| Sets the placeholder of a chooser.
+-}
+placeholder : String -> Model -> Model
+placeholder value model =
+  { model | placeholder = value }
+
+
+{-| Sets whether or not to close the dropdown when selecting an item.
+-}
+closeOnSelect : Bool -> Model -> Model
+closeOnSelect value model =
+  { model | closeOnSelect = value }
+
+
+{-| Sets whether an item must be selected or not.
+-}
+deselectable : Bool -> Model -> Model
+deselectable value model =
+  { model | deselectable = value }
+
+
+{-| Sets whether the user can search among the items or not.
+-}
+searchable : Bool -> Model -> Model
+searchable value model =
+  { model | searchable = value }
+
+
+{-| Sets whether the user can select multiple items or not.
+-}
+multiple : Bool -> Model -> Model
+multiple value model =
+  { model | multiple = value }
+
+
+{-| Sets the items of a chooser.
+-}
+items : List Item -> Model -> Model
+items value model =
+  { model | data = value }
+
+
+{-| Subscriptions for a dropdown menu.
+
+    subscriptions model =
+      Sub.map
+        Chooser
+        (Ui.Chooser.subscriptions model.dropdownMenu)
+-}
+subscriptions : Model -> Sub Msg
+subscriptions model =
+  Sub.map Dropdown (Dropdown.subscriptions model)
+
+
 {-| Updates a chooser.
 
-    Ui.Chooser.update msg chooser
+    ( updatedChoser, cmd ) = Ui.Chooser.update msg chooser
 -}
 update : Msg -> Model -> ( Model, Cmd Msg )
 update action model =
   case action of
-    Enter dimensions ->
+    Enter ->
       let
         ( updatedModel, effect ) =
           toggleItem model.intended model
 
-        fn =
+        function =
           if model.closeOnSelect then
-            Dropdown.toggleWithDimensions
+            Dropdown.toggle
           else
-            Dropdown.openWithDimensions
+            Dropdown.open
       in
-        ( fn dimensions updatedModel, effect )
+        ( function updatedModel, effect )
+
+    Dropdown msg ->
+      ( Dropdown.update msg model, Cmd.none )
 
     Select value ->
       toggleItemAndClose value model
@@ -179,37 +241,37 @@ update action model =
     Filter value ->
       ( intendFirst <| setInputValue value model, Cmd.none )
 
-    Toggle dimensions ->
-      ( intendFirst <| Dropdown.toggleWithDimensions dimensions model, Cmd.none )
+    Toggle ->
+      ( intendFirst <| Dropdown.open model, Cmd.none )
 
-    Focus dimensions ->
-      ( intendFirst <| Dropdown.openWithDimensions dimensions model, Cmd.none )
+    Focus ->
+      ( intendFirst <| Dropdown.open model, Cmd.none )
 
-    Close _ ->
+    Close ->
       ( close model, Cmd.none )
 
     Blur ->
       ( close model, Cmd.none )
 
-    Next dimensions ->
+    Next ->
       ( { model
           | intended =
               Intendable.next
                 model.intended
                 (availableItems model)
         }
-          |> Dropdown.openWithDimensions dimensions
+          |> Dropdown.open
       , Cmd.none
       )
 
-    Prev dimensions ->
+    Prev ->
       ( { model
           | intended =
               Intendable.previous
                 model.intended
                 (availableItems model)
         }
-          |> Dropdown.openWithDimensions dimensions
+          |> Dropdown.open
       , Cmd.none
       )
 
@@ -234,32 +296,31 @@ render : Model -> Html.Html Msg
 render model =
   let
     children =
-      (List.map (renderItem model) (items model))
-
-    dropdown =
-      [ Dropdown.view
-          NoOp
-          model.dropdownPosition
-          [ (Ui.scrolledPanel children) ]
-      ]
+      (List.map (Html.Lazy.lazy2 renderItem model) (items_ model))
 
     val =
-      if model.open && model.searchable then
+      if model.dropdown.open && model.searchable then
         model.value
       else
         label model
 
+    placeholder_ =
+      if Set.isEmpty model.selected then
+        model.placeholder
+      else
+        label model
+
     isReadOnly =
-      not model.searchable || not model.open || model.readonly
+      not model.searchable || not model.dropdown.open || model.readonly
 
     actions =
       Ui.enabledActions
         model
-        [ onInput Filter
+        [ onMouseDown Toggle
+        , onInput Filter
+        , onFocus Focus
         , onBlur Blur
-        , Dropdown.onWithDimensions "mousedown" Toggle
-        , Dropdown.onWithDimensions "focus" Focus
-        , Dropdown.onKeysWithDimensions
+        , onKeys True
             ([ ( 27, Close )
              , ( 13, Enter )
              , ( 40, Next )
@@ -273,18 +334,28 @@ render model =
             )
         ]
   in
-    node
-      "ui-chooser"
-      ([ classList
-          [ ( "searchable", model.searchable )
-          , ( "dropdown-open", model.open )
-          , ( "disabled", model.disabled )
-          , ( "readonly", model.readonly )
+    Dropdown.view
+      { address = Dropdown
+      , tag = "ui-chooser"
+      , attributes =
+        ( [ Ui.attributeList
+            [ ( "searchable", model.searchable )
+            , ( "open", model.dropdown.open )
+            , ( "disabled", model.disabled )
+            , ( "readonly", model.readonly )
+            ]
+          , Ui.Styles.apply defaultStyle
           ]
-       ]
-      )
-      ([ input
-          ([ placeholder model.placeholder
+          |> List.concat
+        )
+      , contents =
+        [ Ui.ScrolledPanel.view
+          [ onPreventDefault "mousedown" NoOp ]
+          children
+        ]
+      , children =
+        [ input
+          ([ Html.Attributes.placeholder placeholder_
            , attribute "id" model.uid
            , disabled model.disabled
            , readonly isReadOnly
@@ -293,9 +364,8 @@ render model =
             ++ actions
           )
           []
-       ]
-        ++ dropdown
-      )
+        ]
+      } model
 
 
 {-| Selects the given value of chooser.
@@ -357,10 +427,6 @@ selectFirst model =
       ( model, Cmd.none )
 
 
-
------------------------------------ PRIVATE ------------------------------------
-
-
 {-| Sends the current value of the model to the signal.
 -}
 sendValue : Model -> ( Model, Cmd Msg )
@@ -404,10 +470,8 @@ toggleMultipleItem value model =
       |> sendValue
 
 
-
-{- Toggle item if multiple is False. -}
-
-
+{-| Toggle item if multiple is False.
+-}
 toggleSingleItem : String -> Model -> ( Model, Cmd Msg )
 toggleSingleItem value model =
   let
@@ -420,10 +484,8 @@ toggleSingleItem value model =
     sendValue updatedModel
 
 
-
-{- Intends the first item if it is available. -}
-
-
+{-| Intends the first item if it is available.
+-}
 intendFirst : Model -> Model
 intendFirst model =
   let
@@ -439,10 +501,8 @@ intendFirst model =
       model
 
 
-
-{- Sets the value of a chooser. -}
-
-
+{-| Sets the value of a chooser.
+-}
 setInputValue : String -> Model -> Model
 setInputValue value model =
   { model | value = value }
@@ -480,28 +540,23 @@ createRegex value =
 -}
 renderItem : Model -> Item -> Html.Html Msg
 renderItem model item =
-  let
-    selectEvent =
-      if model.closeOnSelect then
-        onStop "mouseup" (Select item.value)
-      else
-        onPreventDefault "mousedown" (Select item.value)
-  in
-    node
-      "ui-chooser-item"
-      [ selectEvent
-      , classList
-          [ ( "selected", Set.member item.value model.selected )
-          , ( "intended", item.value == model.intended )
-          ]
+  node
+    "ui-chooser-item"
+    ( [ [ onPreventDefault "mousedown" (Select item.value) ]
+      , Ui.attributeList
+        [ ( "selected", Set.member item.value model.selected )
+        , ( "intended", item.value == model.intended )
+        ]
       ]
-      [ model.render item ]
+      |> List.concat
+    )
+    [ model.render item ]
 
 
 {-| Returns the items to display for a chooser.
 -}
-items : Model -> List Item
-items model =
+items_ : Model -> List Item
+items_ model =
   let
     test item =
       Regex.contains (createRegex model.value) item.label
@@ -516,4 +571,4 @@ items model =
 -}
 availableItems : Model -> List String
 availableItems model =
-  List.map .value (items model)
+  List.map .value (items_ model)

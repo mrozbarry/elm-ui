@@ -1,20 +1,21 @@
-module Ui.ButtonGroup exposing (Model, init, view, render)
+module Ui.ButtonGroup exposing (Model, model, view, render)
 
 {-| Groups a series of buttons together.
 
 # Model
-@docs Model, init
+@docs Model, model
 
 # View
 @docs view, render
 -}
 
-import Html.Events.Extra exposing (onKeys)
 import Html exposing (node)
 import Html.Lazy
 
-import Ui.Button
+import Ui.Styles.ButtonGroup exposing (defaultStyle)
+import Ui.Styles
 
+import Ui.Button
 
 {-| Representation of a button group:
   - **disabled** - Whether or not the button group is disabled
@@ -34,12 +35,14 @@ type alias Model msg =
 
 {-| Initializes a button group with the given data.
 
-    buttonGroup = Ui.ButtonGroup.init [ ("Download", Download)
-                                      , ("Export", Export)
-                                      ]
+    buttonGroup =
+      Ui.ButtonGroup.model
+        [ ("Download", Download)
+        , ("Export", Export)
+        ]
 -}
-init : List ( String, msg ) -> Model msg
-init items =
+model : List ( String, msg ) -> Model msg
+model items =
   { disabled = False
   , readonly = False
   , kind = "primary"
@@ -65,7 +68,7 @@ render : Model msg -> Html.Html msg
 render model =
   node
     "ui-button-group"
-    []
+    (Ui.Styles.apply defaultStyle)
     (List.map (renderButton model) model.items)
 
 

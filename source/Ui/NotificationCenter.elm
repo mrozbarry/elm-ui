@@ -1,9 +1,13 @@
-module Ui.NotificationCenter exposing (Model, Msg, init, update, view, notify)
+module Ui.NotificationCenter exposing
+  (Model, Msg, init, update, view, notify, duration, timeout)
 
-{-| Notification center for displaying messages to the user.
+{-| Notification center for displaying toast messages to the user.
 
 # Models
 @docs Model, Msg, init, update
+
+# DSL
+@docs timeout, duration
 
 # View
 @docs view
@@ -12,19 +16,19 @@ module Ui.NotificationCenter exposing (Model, Msg, init, update, view, notify)
 @docs notify
 -}
 
-import Html.Attributes exposing (classList, style, id)
+import Html.Attributes exposing (style, attribute)
 import Html.Events exposing (onClick)
-import Html exposing (node, text)
+import Html exposing (node)
 import Html.Keyed
+import Html.Lazy
 
-import Json.Encode
 import List.Extra
 import Process
 import Vendor
 import Task
 
-import Ui.Native.Browser as Browser
-
+import Ui.Styles.NotificationCenter exposing (defaultStyle)
+import Ui.Styles
 
 {-| Representation of a notification center:
   - **timeout** - The timeout of the notification before it's hidden
@@ -38,7 +42,7 @@ type alias Model msg =
   }
 
 
-{-| Actions that notification center can make.
+{-| Messages that notification center can recieve.
 -}
 type Msg
   = AutoHide Int
@@ -46,26 +50,43 @@ type Msg
   | Hide Int
 
 
-{-| Initializes a notification center with the given timeout and duration (in
-milliseconds).
+{-| Initializes a notification center.
 
-    notis = Ui.NotificationCenter.init timeout duration
+    notificationCenter =
+      Ui.NotificationCenter.init ()
+        |> Ui.NotificationCenter.timeout 5000
+        |> Ui.NotificationCenter.duration 500
 -}
-init : Float -> Float -> Model msg
-init timeout duration =
-  { duration = duration
-  , notifications = []
-  , timeout = timeout
+init : () -> Model msg
+init _ =
+  { notifications = []
+  , duration = 500
+  , timeout = 5000
   }
+
+
+{-| Sets the timeout (in milliseconds) of a notification center.
+-}
+timeout : Float -> Model msg -> Model msg
+timeout value model =
+  { model | timeout = value }
+
+
+{-| Sets the duration (in milliseconds) of a notification center.
+-}
+duration : Float -> Model msg -> Model msg
+duration value model =
+  { model | duration = value }
 
 
 {-| Updates a notification center.
 
-    Ui.NotificationCenter.update notis
+    ( updatedNotificationCenter, cmd ) =
+      Ui.NotificationCenter.update msg notificationCenter
 -}
 update : Msg -> Model msg -> ( Model msg, Cmd Msg )
-update action model =
-  case action of
+update msg model =
+  case msg of
     AutoHide id ->
       autoHide id model
 
@@ -78,16 +99,17 @@ update action model =
 
 {-| Renders a notification center.
 
-    Ui.NotificationCenter.view notis
+    Ui.NotificationCenter.view notificationCenter
 -}
 view : (Msg -> a) -> Model a -> Html.Html a
 view address model =
-  render address model
+  Html.Lazy.lazy2 render address model
 
 
 {-| Adds a notification with the given html content.
 
-    Ui.NotificationCenter.notify (text "Hello") model
+    ( updatedNotificationCenter, cmd ) =
+      Ui.NotificationCenter.notify (text "Hello") notificationCenter
 -}
 notify : Html.Html msg -> Model msg -> ( Model msg, Cmd Msg )
 notify contents model =
@@ -103,20 +125,18 @@ notify contents model =
     )
 
 
-
------------------------------------ PRIVATE ------------------------------------
-
-
 {-| Representation of a notification.
 -}
 type alias Notification msg =
   { contents : Html.Html msg
+  , attribute : String
   , duration : Float
-  , class : String
   , id : Int
   }
 
 
+{-| Performs the given task and turns it into the given message.
+-}
 performTask : Msg -> Task.Task Never b -> Cmd Msg
 performTask msg task =
   Task.perform (\_ -> msg) task
@@ -128,7 +148,7 @@ render : (Msg -> a) -> Model a -> Html.Html a
 render address model =
   Html.Keyed.node
     "ui-notification-center"
-    []
+    (Ui.Styles.apply defaultStyle)
     (List.map (renderNotification address) model.notifications)
 
 
@@ -160,14 +180,14 @@ renderNotification address model =
     html =
       node
         "ui-notification"
-        [ classList [ ( model.class, True ) ]
-        , onClick (address (Hide model.id))
+        [ onClick (address (Hide model.id))
+        , attribute model.attribute ""
         , style
             [ ( "animation-duration", duration )
             , ( prefix ++ "animation-duration", duration )
             ]
         ]
-        [ node "div" [] [ model.contents ] ]
+        [ node "ui-notification-body" [] [ model.contents ] ]
   in
     ( toString model.id, html )
 
@@ -182,7 +202,7 @@ initNotification model contents =
         |> List.maximum
         |> Maybe.withDefault -1
   in
-    { class = "ui-notification-show"
+    { attribute = "ui-notification-show"
     , duration = model.duration
     , contents = contents
     , id = id + 1
@@ -199,12 +219,12 @@ hide id model =
 
     updatedNotification item =
       if item.id == id then
-        { item | class = "ui-notification-hide" }
+        { item | attribute = "ui-notification-hide" }
       else
         item
   in
     ( { model | notifications = updatedNotifications }
-    , performTask (Remove id) (Process.sleep (model.duration + 100))
+    , performTask (Remove id) (Process.sleep (model.duration + 250))
     )
 
 
@@ -220,15 +240,15 @@ autoHide id model =
       List.map .id model.notifications
         |> List.member id
 
-    hideEffect =
+    hideCmd =
       if updatedNotifications /= model.notifications then
-        performTask (Remove id) (Process.sleep (model.duration + 100))
+        performTask (Remove id) (Process.sleep (model.duration + 250))
       else
         performTask (AutoHide id) (Process.sleep 100)
 
-    effect =
+    cmd =
       if isMember then
-        hideEffect
+        hideCmd
       else
         Cmd.none
 
@@ -239,11 +259,11 @@ autoHide id model =
             |> Maybe.withDefault -1
       in
         if item.id == id && index == 0 then
-          { item | class = "ui-notification-hide" }
+          { item | attribute = "ui-notification-hide" }
         else
           item
   in
-    ( { model | notifications = updatedNotifications }, effect )
+    ( { model | notifications = updatedNotifications }, cmd )
 
 
 {-| Removes the notification with the given id.

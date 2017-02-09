@@ -1,22 +1,40 @@
 # Contributing
-Any contributions are welcome.
+Thanks for taking the time to contribute! :tada: :confetti_ball: :+1:
 
-## Installing dependencies
-After cloning the repository you will need to install both **Elm** and **Node** dependencies:
-  * To install the Node ones run `npm install` in the root of the directory
-  * To install the Elm ones run `npm run elm-install` in the root of the directory
+### Installation
+First, ensure you have [Node.js](https://nodejs.org/en/) and
+[Yarn](https://yarnpkg.com) installed on your machine.
 
-## Development environment
-You can start the development environment with the `npm start` command.
+To install dependencies run the `yarn` or `yarn install` command, this will
+install:
+* the `elm`, `elm-github-install` and `elm-spec` packages
+* all of the Elm packages that are needed for compiling the project
 
-## The Main Module
-The main module contains the **examples (kitchen sink)** of all components (which are used for tests).
+### Running specs
+Specs are added for every component and they are located in the `spec` folder.
+You can run all of the specs with the `yarn spec` command or a single spec
+with the `yarn spec path/to/spec.elm` command.
 
-## Styles
-The stylesheet directory contains the styles for the components.
+Specs can also be run in the browser `yarn start` command, which starts
+`elm-reactor` on port `8002`. For example the specs for `Ui.Input` can be
+view in the browser at `http://localhost:8002/spec/Ui/InputSpec.elm`.
 
-## Tests
-Tests are run using [Nightwatch.js](http://nightwatchjs.org):
+### Developing
+A typical contributor workflow looks like this:
 
-- Install selenium for your system into `spec/vendor/selenium-server.jar`
-- The following command will run all the tests in Chrome and Firefox `npm test`
+* Create a fork and a feature branch.
+* Write some code :hammer:
+* Ensure your code is **tested**.
+  - If you are changing behavior add specs to cover it
+  - If you are creating a new components add specs for it's behavior
+* Submit a Pull Request on GitHub.
+  - Write a thorough description of your work so that reviewers
+    and future developers can understand your code changes.
+  - Tests will run automatically for every pull request on
+    [travis-ci.org](https://travis-ci.org)
+* Your code will be reviewed and merged after approval.
+  - You may be asked to make modifications to code style or to fix bugs
+    you may have not noticed.
+  - Please respond to comments in a timely fashion (even if to tell us
+    you need more time).
+* Hooray, you contributed! :tophat:

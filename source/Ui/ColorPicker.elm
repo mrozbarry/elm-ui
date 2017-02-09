@@ -1,11 +1,14 @@
 module Ui.ColorPicker exposing
-  (Model, Msg, init, subscribe, subscriptions, update, view, render, setValue)
+  (Model, Msg, init, onChange, subscriptions, update, view, render, setValue)
 
 {-| An input component that displays a **Ui.ColorPanel** (in a dropdown) when
 focused, allowing the user to manipulate the selected color.
 
 # Model
-@docs Model, Msg, init, subscribe, subscriptions, update
+@docs Model, Msg, init, subscriptions, update
+
+# DSL
+@docs onChange
 
 # View
 @docs view, render
@@ -14,32 +17,34 @@ focused, allowing the user to manipulate the selected color.
 @docs setValue
 -}
 
-import Html.Attributes exposing (classList, style)
-import Html.Events exposing (onBlur, onClick)
-import Html exposing (node, div, text)
+import Html exposing (node, div, text, span)
+import Html.Attributes exposing (style)
 import Html.Lazy
 
 import Ext.Color exposing (Hsv)
 import Color exposing (Color)
 
-import Ui.Helpers.Dropdown as Dropdown
+import Ui.Helpers.Dropdown as Dropdown exposing (Dropdown)
+import Ui.Helpers.Picker as Picker
+import Ui.Native.Uid as Uid
 import Ui.ColorPanel
-import Ui
 
+import Ui.Styles.ColorPicker exposing (defaultStyle)
+import Ui.Styles
 
 {-| Representation of a color picker:
-  - **colorPanel** - The model of a color panel
-  - **dropdownPosition** - Where the dropdown is positioned (bottom / top)
   - **disabled** - Whether or not the color picker is disabled
   - **readonly** - Whether or not the color picker is readonly
-  - **open** - Whether or not the color picker is open
+  - **uid** - The unique identifier of the color picker
+  - **colorPanel** - The model of a color panel
+  - **dropdown** - The model of the dropdown
 -}
 type alias Model =
   { colorPanel : Ui.ColorPanel.Model
-  , dropdownPosition : String
+  , dropdown : Dropdown
   , disabled : Bool
   , readonly : Bool
-  , open : Bool
+  , uid : String
   }
 
 
@@ -47,83 +52,62 @@ type alias Model =
 -}
 type Msg
   = ColorPanel Ui.ColorPanel.Msg
-  | Toggle Dropdown.Dimensions
-  | Focus Dropdown.Dimensions
-  | Close Dropdown.Dimensions
-  | Blur
-  | NoOp
+  | Picker Picker.Msg
 
 
 {-| Initializes a color picker with the given color.
 
     colorPicker = Ui.ColorPicker.init Color.yellow
 -}
-init : Color.Color -> Model
-init color =
-  { colorPanel = Ui.ColorPanel.init color
-  , dropdownPosition = "bottom"
+init : () -> Model
+init _ =
+  { colorPanel = Ui.ColorPanel.init ()
+  , dropdown = Dropdown.init
   , disabled = False
   , readonly = False
-  , open = False
+  , uid = Uid.uid ()
   }
+    |> Dropdown.offset 5
 
 
 {-| Subscribe to the changes of a color picker.
 
-    ...
-    subscriptions =
-      \model ->
-        Ui.ColorPicker.subscribe
-          ColorPickerChanged
-          model.colorPicker
-    ...
+    subscription = Ui.ColorPicker.onChange ColorPickerChanged colorPicker
 -}
-subscribe : (Hsv -> msg) -> Model -> Sub msg
-subscribe msg model =
-  Ui.ColorPanel.subscribe msg model.colorPanel
+onChange : (Hsv -> msg) -> Model -> Sub msg
+onChange msg model =
+  Ui.ColorPanel.onChange msg model.colorPanel
 
 
 {-| Subscriptions for a color picker.
 
-    ...
     subscriptions =
-      \model ->
-        Sub.map
-          ColorPicker
-          (Ui.ColorPicker.subscriptions model.colorPicker)
-    ...
+      Sub.map ColorPicker (Ui.ColorPicker.subscriptions colorPicker)
 -}
 subscriptions : Model -> Sub Msg
 subscriptions model =
-  Sub.map ColorPanel (Ui.ColorPanel.subscriptions model.colorPanel)
+  Sub.batch
+    [ Sub.map ColorPanel (Ui.ColorPanel.subscriptions model.colorPanel)
+    , Sub.map Picker (Picker.subscriptions model)
+    ]
 
 
 {-| Updates a color picker.
+
+    ( updatedColorPicker, cmd ) = Ui.ColorPicker.update msg colorPicker
 -}
 update : Msg -> Model -> ( Model, Cmd Msg )
 update action model =
   case action of
+    Picker act ->
+      ( Picker.update act model, Cmd.none )
+
     ColorPanel act ->
       let
         ( colorPanel, effect ) =
           Ui.ColorPanel.update act model.colorPanel
       in
         ( { model | colorPanel = colorPanel }, Cmd.map ColorPanel effect )
-
-    Focus dimensions ->
-      ( Dropdown.openWithDimensions dimensions model, Cmd.none )
-
-    Close _ ->
-      ( Dropdown.close model, Cmd.none )
-
-    Blur ->
-      ( Dropdown.close model, Cmd.none )
-
-    Toggle dimensions ->
-      ( Dropdown.toggleWithDimensions dimensions model, Cmd.none )
-
-    NoOp ->
-      ( model, Cmd.none )
 
 
 {-| Lazily renders a color picker.
@@ -144,50 +128,34 @@ render model =
   let
     color =
       Ext.Color.toCSSRgba model.colorPanel.value
-
-    actions =
-      Ui.enabledActions
-        model
-        [ Dropdown.onWithDimensions "focus" Focus
-        , onBlur Blur
-        , Dropdown.onKeysWithDimensions
-            [ ( 27, Close )
-            , ( 13, Toggle )
-            ]
-        ]
-
-    open =
-      model.open && not model.disabled && not model.readonly
   in
-    node
-      "ui-color-picker"
-      ([ classList
-          [ ( "dropdown-open", open )
-          , ( "disabled", model.disabled )
-          , ( "readonly", model.readonly )
+    Picker.view
+      { address = Picker
+      , attributes = Ui.Styles.apply defaultStyle
+      , keyActions = []
+      , contents =
+          [ node "ui-color-picker-text" [] [ text color ]
+          , node "ui-color-picker-rect" []
+            [ node "ui-color-picker-background"
+              [ style [ ( "background-color", color ) ] ]
+              []
+            ]
           ]
-       ]
-        ++ actions
-        ++ (Ui.tabIndex model)
-      )
-      [ div [] [ text color ]
-      , node
-          "ui-color-picker-rect"
-          []
-          [ div [ style [ ( "background-color", color ) ] ] [] ]
-      , Dropdown.view
-          NoOp
-          model.dropdownPosition
-          [ node "ui-dropdown-overlay" [ onClick Blur ] []
-          , Html.map ColorPanel (Ui.ColorPanel.view model.colorPanel)
-          ]
-      ]
+      , dropdownContents =
+        [ Html.map ColorPanel (Ui.ColorPanel.view model.colorPanel)
+        ]
+      } model
 
 
 {-| Sets the value of a color picker.
 
-    Ui.ColorPicker.setValue Color.black colorPicker
+    ( updatedColorPicker, cmd ) =
+      Ui.ColorPicker.setValue Color.black colorPicker
 -}
-setValue : Color -> Model -> Model
+setValue : Color -> Model -> ( Model, Cmd Msg )
 setValue color model =
-  { model | colorPanel = Ui.ColorPanel.setValue color model.colorPanel }
+  let
+    ( colorPanel, cmd ) =
+      Ui.ColorPanel.setValue color model.colorPanel
+  in
+    ( { model | colorPanel = colorPanel }, Cmd.map ColorPanel cmd )

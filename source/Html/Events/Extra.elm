@@ -3,30 +3,29 @@ module Html.Events.Extra exposing (..)
 {-| Event handlers and event decoders that are not part of _elm-lang/html_.
 
 # Generic
-@docs onStop, onPreventDefault
+@docs onPreventDefault
 
 # Keyboard Related
 @docs onEnter, onEnterPreventDefault, onKeys, keysDecoder
 
 # Miscellaneous
 @docs onScroll, onTransitionEnd, onLoad, onError, onWheel, decodeDelta
-@docs unobtrusiveClick
+@docs unobtrusiveClick, onFocusOut
 -}
 
 import Html.Events.Options exposing (preventDefaultOptions, stopOptions)
-import Html.Events exposing (on, keyCode, onWithOptions)
+import Html.Events exposing (on, keyCode, onWithOptions, defaultOptions)
 import Html
 
 import Json.Decode as Json exposing (field)
 
 import Dict
 
-
 {-| Creates an attribute for the **click** event that will stop the event if
 the control key or the middle mouse button is not pressed.
 
 It works this way to not to hinder the browsers basic ability to open
-the link on in new pages.
+the link in new pages.
 -}
 unobtrusiveClick : msg -> Html.Attribute msg
 unobtrusiveClick msg =
@@ -59,6 +58,14 @@ events.
 onWheel : Json.Decoder data -> (data -> msg) -> Html.Attribute msg
 onWheel decoder action =
   on "wheel" (Json.map action decoder)
+
+
+{-| Capture [focusout](https://developer.mozilla.org/en-US/docs/Web/Events/focusout)
+events.
+-}
+onFocusOut : msg -> Html.Attribute msg
+onFocusOut msg =
+  on "focusout" (Json.succeed msg)
 
 
 {-| Capture [keyup](https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent)
@@ -118,15 +125,6 @@ onPreventDefault event msg =
     (Json.succeed msg)
 
 
-{-| Capture events and prevent their default behavior and stop it's propagation.
-
-    Html.Events.Extra.onStop "keyup" Update
--}
-onStop : String -> msg -> Html.Attribute msg
-onStop event msg =
-  onWithOptions event stopOptions (Json.succeed msg)
-
-
 {-| Capture [scroll](https://developer.mozilla.org/en-US/docs/Web/Events/scroll)
 events.
 -}
@@ -151,9 +149,16 @@ is pressed from the give list.
            , ( 27, Esc )
            ]
 -}
-onKeys : List ( Int, msg ) -> Html.Attribute msg
-onKeys mappings =
-  onWithOptions "keydown" stopOptions (keysDecoder mappings)
+onKeys : Bool -> List ( Int, msg ) -> Html.Attribute msg
+onKeys shouldPreventDefault mappings =
+  let
+    options =
+      if shouldPreventDefault then
+        preventDefaultOptions
+      else
+        defaultOptions
+  in
+    onWithOptions "keydown" options (keysDecoder mappings)
 
 
 {-| Capture [load](https://developer.mozilla.org/en-US/docs/Web/Events/load)
