@@ -255,7 +255,11 @@ render viewModel model =
         viewModel.contents
 
     children =
-      viewModel.children ++ [ dropdown ]
+      viewModel.children ++
+        (if model.open then
+          [ dropdown ]
+        else
+          [])
   in
     node viewModel.tag attributes children
 
